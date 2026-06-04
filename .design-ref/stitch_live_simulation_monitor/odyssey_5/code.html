@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+
+<html class="light" lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Odyssey | 知识图谱</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@100..900&amp;family=JetBrains+Mono:wght@100..800&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<style>
+        body {
+            background-color: #fcf8fb;
+            color: #1c1b1d;
+            overflow: hidden;
+            font-family: 'Geist', sans-serif;
+        }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .glass-panel {
+            background: rgba(252, 248, 251, 0.8);
+            backdrop-filter: blur(12px);
+            border: 1px solid #c7c4d7;
+        }
+        .graph-node {
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            cursor: pointer;
+        }
+        .graph-node:hover {
+            filter: drop-shadow(0 0 12px rgba(70, 72, 212, 0.2));
+            transform: scale(1.05);
+        }
+        .edge-line {
+            stroke-dasharray: 4;
+            animation: dash 20s linear infinite;
+        }
+        @keyframes dash {
+            to { stroke-dashoffset: -100; }
+        }
+    </style>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "on-background": "#1c1b1d",
+                        "tertiary-fixed-dim": "#ffb95f",
+                        "on-secondary-fixed": "#002113",
+                        "surface-dim": "#dcd9dc",
+                        "surface-bright": "#fcf8fb",
+                        "on-secondary-container": "#00714d",
+                        "on-error-container": "#93000a",
+                        "tertiary-container": "#a36700",
+                        "tertiary": "#825100",
+                        "tertiary-fixed": "#ffddb8",
+                        "surface-variant": "#e5e1e4",
+                        "on-primary-container": "#fffbff",
+                        "error": "#ba1a1a",
+                        "surface-container-low": "#f6f2f5",
+                        "on-tertiary-fixed": "#2a1700",
+                        "on-error": "#ffffff",
+                        "primary-fixed-dim": "#c0c1ff",
+                        "primary-container": "#6063ee",
+                        "outline-variant": "#c7c4d7",
+                        "on-secondary-fixed-variant": "#005236",
+                        "on-surface": "#1c1b1d",
+                        "inverse-surface": "#313032",
+                        "surface-container-lowest": "#ffffff",
+                        "on-primary-fixed-variant": "#2f2ebe",
+                        "surface-tint": "#494bd6",
+                        "secondary-container": "#6cf8bb",
+                        "surface-container-high": "#eae7ea",
+                        "error-container": "#ffdad6",
+                        "secondary-fixed-dim": "#4edea3",
+                        "on-tertiary-container": "#fffbff",
+                        "secondary-fixed": "#6ffbbe",
+                        "on-tertiary-fixed-variant": "#653e00",
+                        "surface-container": "#f0edf0",
+                        "secondary": "#006c49",
+                        "on-primary-fixed": "#07006c",
+                        "on-secondary": "#ffffff",
+                        "on-primary": "#ffffff",
+                        "background": "#fcf8fb",
+                        "primary": "#4648d4",
+                        "inverse-on-surface": "#f3f0f2",
+                        "primary-fixed": "#e1e0ff",
+                        "surface-container-highest": "#e5e1e4",
+                        "outline": "#767586",
+                        "inverse-primary": "#c0c1ff",
+                        "on-tertiary": "#ffffff",
+                        "on-surface-variant": "#464554",
+                        "surface": "#fcf8fb"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.5rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "xl": "40px",
+                        "sm": "8px",
+                        "max-width": "1280px",
+                        "margin-desktop": "48px",
+                        "xs": "4px",
+                        "lg": "24px",
+                        "md": "16px",
+                        "base": "4px",
+                        "gutter": "24px",
+                        "margin-mobile": "16px"
+                    },
+                    "fontFamily": {
+                        "label-sm": ["Geist"],
+                        "body-lg": ["Geist"],
+                        "headline-lg": ["Geist"],
+                        "headline-md": ["Geist"],
+                        "label-md": ["Geist"],
+                        "headline-xl": ["Geist"],
+                        "body-md": ["Geist"],
+                        "body-sm": ["Geist"]
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="bg-background text-on-surface font-['Geist']">
+<!-- TopNavBar -->
+<header class="fixed top-0 w-full z-50 bg-surface/90 backdrop-blur-xl border-b border-outline-variant flex items-center justify-between px-margin-desktop h-16">
+<div class="flex items-center gap-8">
+<span class="font-headline-md text-headline-md font-bold tracking-tight text-primary">Odyssey</span>
+<nav class="hidden md:flex gap-6">
+<a class="text-on-surface-variant font-medium hover:text-primary transition-colors duration-200 cursor-pointer" href="#">模拟</a>
+<a class="text-primary font-bold border-b-2 border-primary pb-1 cursor-pointer" href="#">知识库</a>
+<a class="text-on-surface-variant font-medium hover:text-primary transition-colors duration-200 cursor-pointer" href="#">智能体实验室</a>
+<a class="text-on-surface-variant font-medium hover:text-primary transition-colors duration-200 cursor-pointer" href="#">结果</a>
+<a class="text-on-surface-variant font-medium hover:text-primary transition-colors duration-200 cursor-pointer" href="#">设置</a>
+</nav>
+</div>
+<div class="flex items-center gap-4">
+<button class="material-symbols-outlined text-on-surface-variant hover:text-primary transition-all">notifications</button>
+<button class="material-symbols-outlined text-on-surface-variant hover:text-primary transition-all">account_circle</button>
+</div>
+</header>
+<!-- SideNavBar (Left) -->
+<aside class="fixed left-0 top-16 h-[calc(100vh-64px)] w-64 bg-surface-container-low border-r border-outline-variant flex flex-col p-md space-y-4">
+<div class="px-2 py-4">
+<div class="flex items-center gap-3 mb-1">
+<div class="w-8 h-8 rounded bg-primary/10 flex items-center justify-center">
+<span class="material-symbols-outlined text-primary text-sm">hub</span>
+</div>
+<div>
+<h2 class="text-md font-bold text-on-surface">模拟 Alpha</h2>
+<p class="text-xs text-on-surface-variant">v2.4.1-稳定版</p>
+</div>
+</div>
+</div>
+<button class="w-full py-2 bg-primary text-on-primary font-bold rounded-lg flex items-center justify-center gap-2 mb-4 hover:shadow-lg transition-all active:scale-[0.98]">
+<span class="material-symbols-outlined text-sm">add</span>
+            新建运行
+        </button>
+<nav class="flex-1 space-y-1">
+<div class="flex items-center gap-3 p-3 text-on-surface-variant hover:bg-surface-variant/50 rounded-lg cursor-pointer transition-all duration-200">
+<span class="material-symbols-outlined">account_tree</span>
+<span class="text-sm">流水线</span>
+</div>
+<div class="flex items-center gap-3 p-3 text-on-surface-variant hover:bg-surface-variant/50 rounded-lg cursor-pointer transition-all duration-200">
+<span class="material-symbols-outlined">psychology</span>
+<span class="text-sm">模型</span>
+</div>
+<div class="flex items-center gap-3 p-3 text-on-surface-variant hover:bg-surface-variant/50 rounded-lg cursor-pointer transition-all duration-200">
+<span class="material-symbols-outlined">query_stats</span>
+<span class="text-sm">遥测</span>
+</div>
+<div class="flex items-center gap-3 p-3 text-primary bg-primary/10 rounded-lg cursor-pointer transition-all duration-200">
+<span class="material-symbols-outlined">list_alt</span>
+<span class="text-sm font-medium">日志</span>
+</div>
+<div class="flex items-center gap-3 p-3 text-on-surface-variant hover:bg-surface-variant/50 rounded-lg cursor-pointer transition-all duration-200">
+<span class="material-symbols-outlined">terminal</span>
+<span class="text-sm">终端</span>
+</div>
+</nav>
+<div class="pt-4 border-t border-outline-variant space-y-1">
+<div class="flex items-center gap-3 p-3 text-on-surface-variant hover:bg-surface-variant/50 rounded-lg cursor-pointer transition-all duration-200">
+<span class="material-symbols-outlined">help_outline</span>
+<span class="text-sm">帮助</span>
+</div>
+<div class="flex items-center gap-3 p-3 text-on-surface-variant hover:bg-surface-variant/50 rounded-lg cursor-pointer transition-all duration-200">
+<span class="material-symbols-outlined">description</span>
+<span class="text-sm">文档</span>
+</div>
+</div>
+</aside>
+<!-- Main Content -->
+<main class="ml-64 mt-16 mr-80 h-[calc(100vh-64px)] relative bg-surface-container-lowest overflow-hidden">
+<!-- Legend Overlay -->
+<div class="absolute top-4 left-4 glass-panel p-4 rounded-lg z-20 space-y-3">
+<h4 class="text-[10px] font-bold text-outline uppercase tracking-widest mb-2">实体类型</h4>
+<div class="flex flex-col gap-2">
+<div class="flex items-center gap-3">
+<span class="w-2 h-2 rounded-full bg-primary"></span>
+<span class="text-xs">人员</span>
+</div>
+<div class="flex items-center gap-3">
+<span class="w-2 h-2 rounded-full bg-secondary"></span>
+<span class="text-xs">组织</span>
+</div>
+<div class="flex items-center gap-3">
+<span class="w-2 h-2 rounded-full bg-tertiary"></span>
+<span class="text-xs">技术</span>
+</div>
+<div class="flex items-center gap-3">
+<span class="w-2 h-2 rounded-full bg-error"></span>
+<span class="text-xs">风险</span>
+</div>
+</div>
+</div>
+<!-- Graph Visualization -->
+<div class="w-full h-full cursor-move" id="graph-viewport">
+<svg class="w-full h-full" viewbox="0 0 1200 800" xmlns="http://www.w3.org/2000/svg">
+<defs>
+<marker id="arrowhead" markerheight="7" markerwidth="10" orientation="auto" refx="10" refy="3.5">
+<polygon fill="#767586" points="0 0, 10 3.5, 0 7"></polygon>
+</marker>
+</defs>
+<!-- Edges -->
+<g class="edges opacity-30">
+<line class="edge-line" marker-end="url(#arrowhead)" stroke="#767586" stroke-width="1.5" x1="400" x2="600" y1="300" y2="400"></line>
+<line class="edge-line" marker-end="url(#arrowhead)" stroke="#767586" stroke-width="1.5" x1="600" x2="800" y1="400" y2="350"></line>
+<line class="edge-line" marker-end="url(#arrowhead)" stroke="#767586" stroke-width="1.5" x1="200" x2="400" y1="500" y2="300"></line>
+<line class="edge-line" marker-end="url(#arrowhead)" stroke="#767586" stroke-width="1.5" x1="800" x2="950" y1="350" y2="550"></line>
+<line class="edge-line" marker-end="url(#arrowhead)" stroke="#767586" stroke-width="1.5" x1="600" x2="550" y1="400" y2="600"></line>
+</g>
+<!-- Nodes -->
+<g class="nodes">
+<g class="graph-node" onclick="showDetails('Aether Engine v4', '技术', 94)">
+<circle cx="600" cy="400" fill="#ffffff" r="32" stroke="#825100" stroke-width="2.5"></circle>
+<text class="material-symbols-outlined" fill="#825100" font-size="24" text-anchor="middle" x="600" y="405">memory</text>
+<text fill="#1c1b1d" font-family="Geist" font-size="12" font-weight="600" text-anchor="middle" x="600" y="455">Aether Engine v4</text>
+</g>
+<g class="graph-node" onclick="showDetails('Lumina Dynamics', '组织', 88)">
+<circle cx="400" cy="300" fill="#ffffff" r="28" stroke="#006c49" stroke-width="2.5"></circle>
+<text class="material-symbols-outlined" fill="#006c49" font-size="20" text-anchor="middle" x="400" y="305">corporate_fare</text>
+<text fill="#1c1b1d" font-family="Geist" font-size="12" font-weight="600" text-anchor="middle" x="400" y="345">Lumina Dynamics</text>
+</g>
+<g class="graph-node" onclick="showDetails('Dr. Aris Thorne', '人员', 72)">
+<circle cx="800" cy="350" fill="#ffffff" r="24" stroke="#4648d4" stroke-width="2.5"></circle>
+<text class="material-symbols-outlined" fill="#4648d4" font-size="18" text-anchor="middle" x="800" y="355">person</text>
+<text fill="#1c1b1d" font-family="Geist" font-size="12" font-weight="600" text-anchor="middle" x="800" y="390">Dr. Aris Thorne</text>
+</g>
+<g class="graph-node" onclick="showDetails('Spectral Leakage', '风险', 45)">
+<circle cx="550" cy="600" fill="#ffffff" r="24" stroke="#ba1a1a" stroke-width="2.5"></circle>
+<text class="material-symbols-outlined" fill="#ba1a1a" font-size="18" text-anchor="middle" x="550" y="605">warning</text>
+<text fill="#1c1b1d" font-family="Geist" font-size="12" font-weight="600" text-anchor="middle" x="550" y="640">Spectral Leakage</text>
+</g>
+</g>
+</svg>
+</div>
+<!-- Floating Controls -->
+<div class="absolute bottom-6 right-6 flex flex-col gap-2">
+<button class="w-10 h-10 bg-white shadow-md border border-outline-variant rounded-lg flex items-center justify-center hover:bg-surface-variant transition-colors">
+<span class="material-symbols-outlined">add</span>
+</button>
+<button class="w-10 h-10 bg-white shadow-md border border-outline-variant rounded-lg flex items-center justify-center hover:bg-surface-variant transition-colors">
+<span class="material-symbols-outlined">remove</span>
+</button>
+</div>
+</main>
+<!-- Right Sidebar: Simplified Details -->
+<aside class="fixed right-0 top-16 h-[calc(100vh-64px)] w-80 bg-surface border-l border-outline-variant p-lg z-30 transition-transform duration-300 translate-x-0" id="details-sidebar">
+<div class="flex items-center justify-between mb-8">
+<h3 class="font-bold text-on-surface">节点详情</h3>
+<button class="material-symbols-outlined text-on-surface-variant hover:text-on-surface" onclick="toggleSidebar()">close</button>
+</div>
+<div id="node-content">
+<div class="flex items-center gap-4 mb-8">
+<div class="w-14 h-14 rounded-lg flex items-center justify-center" id="detail-icon-bg">
+<span class="material-symbols-outlined text-3xl" id="detail-icon">memory</span>
+</div>
+<div>
+<h2 class="text-xl font-bold text-on-surface leading-tight" id="detail-title">Aether Engine v4</h2>
+<span class="text-[10px] font-bold px-2 py-0.5 bg-surface-container text-on-surface-variant rounded uppercase tracking-wider" id="detail-tag">技术</span>
+</div>
+</div>
+<div class="space-y-6">
+<!-- Influence Score -->
+<div class="bg-surface-container-low p-4 rounded-lg border border-outline-variant/30">
+<div class="flex justify-between items-end mb-3">
+<span class="text-xs text-on-surface-variant font-medium">影响分值</span>
+<span class="text-2xl font-bold text-primary" id="detail-score">94.2</span>
+</div>
+<div class="w-full bg-surface-variant h-2 rounded-full overflow-hidden">
+<div class="bg-primary h-full transition-all duration-500" id="detail-score-bar" style="width: 94%"></div>
+</div>
+</div>
+<!-- Attributes -->
+<div class="space-y-3">
+<div class="flex justify-between items-center text-sm py-1">
+<span class="text-on-surface-variant">中心度</span>
+<span class="font-bold">0.882</span>
+</div>
+<div class="flex justify-between items-center text-sm py-1">
+<span class="text-on-surface-variant">稳定性</span>
+<span class="font-bold text-secondary">高</span>
+</div>
+</div>
+<!-- Relationships -->
+<div class="pt-4 border-t border-outline-variant">
+<h4 class="text-xs font-bold text-on-surface-variant uppercase tracking-widest mb-4">关联实体</h4>
+<div class="space-y-2">
+<div class="flex items-center justify-between p-3 bg-surface-container-low border border-outline-variant/50 rounded-lg hover:border-primary transition-all cursor-pointer">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-secondary text-base">corporate_fare</span>
+<span class="text-sm font-medium">Lumina Dynamics</span>
+</div>
+<span class="text-[10px] text-outline">归属</span>
+</div>
+<div class="flex items-center justify-between p-3 bg-surface-container-low border border-outline-variant/50 rounded-lg hover:border-error transition-all cursor-pointer">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-error text-base">warning</span>
+<span class="text-sm font-medium">Spectral Leakage</span>
+</div>
+<span class="text-[10px] text-outline">影响</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+</aside>
+<script>
+        function showDetails(name, type, score) {
+            const sidebar = document.getElementById('details-sidebar');
+            const title = document.getElementById('detail-title');
+            const tag = document.getElementById('detail-tag');
+            const scoreText = document.getElementById('detail-score');
+            const scoreBar = document.getElementById('detail-score-bar');
+            const iconBg = document.getElementById('detail-icon-bg');
+            const icon = document.getElementById('detail-icon');
+
+            title.innerText = name;
+            tag.innerText = type;
+            scoreText.innerText = score.toFixed(1);
+            scoreBar.style.width = score + '%';
+
+            const types = {
+                '技术': { color: '#825100', icon: 'memory', bg: 'rgba(130, 81, 0, 0.1)' },
+                '组织': { color: '#006c49', icon: 'corporate_fare', bg: 'rgba(0, 108, 73, 0.1)' },
+                '人员': { color: '#4648d4', icon: 'person', bg: 'rgba(70, 72, 212, 0.1)' },
+                '风险': { color: '#ba1a1a', icon: 'warning', bg: 'rgba(186, 26, 26, 0.1)' }
+            };
+
+            const style = types[type] || types['技术'];
+            icon.innerText = style.icon;
+            icon.style.color = style.color;
+            iconBg.style.backgroundColor = style.bg;
+            tag.style.color = style.color;
+
+            sidebar.classList.remove('translate-x-full');
+            sidebar.classList.add('translate-x-0');
+        }
+
+        function toggleSidebar() {
+            const sidebar = document.getElementById('details-sidebar');
+            sidebar.classList.toggle('translate-x-full');
+        }
+
+        // Draggable viewport mock
+        const viewport = document.getElementById('graph-viewport');
+        let isDragging = false;
+        viewport.addEventListener('mousedown', () => isDragging = true);
+        window.addEventListener('mouseup', () => isDragging = false);
+    </script>
+</body></html>

@@ -1,0 +1,546 @@
+<!DOCTYPE html>
+
+<html class="light" lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>结果与策略 | Odyssey</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@100..900&amp;family=JetBrains+Mono:wght@100..800&amp;family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+            vertical-align: middle;
+        }
+        .glass-panel {
+            background: #ffffff;
+            border: 1px solid #e5e1e4;
+            box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
+        }
+        .luminous-border {
+            border: 1px solid #c0c1ff;
+        }
+        .glow-pulse {
+            animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; filter: drop-shadow(0 0 2px #4648d4); }
+            50% { opacity: 0.7; filter: drop-shadow(0 0 6px #4648d4); }
+        }
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #f6f2f5; }
+        ::-webkit-scrollbar-thumb { background: #c7c4d7; border-radius: 3px; }
+    </style>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "on-primary-fixed": "#07006c",
+                        "surface-tint": "#494bd6",
+                        "outline-variant": "#c7c4d7",
+                        "error": "#ba1a1a",
+                        "on-primary-fixed-variant": "#2f2ebe",
+                        "primary-fixed-dim": "#c0c1ff",
+                        "tertiary-fixed": "#ffddb8",
+                        "surface-container-low": "#f6f2f5",
+                        "on-error": "#ffffff",
+                        "on-secondary-fixed": "#002113",
+                        "on-secondary-fixed-variant": "#005236",
+                        "primary": "#4648d4",
+                        "surface-container-high": "#eae7ea",
+                        "on-primary-container": "#fffbff",
+                        "on-primary": "#ffffff",
+                        "surface-container": "#f0edf0",
+                        "secondary-container": "#6cf8bb",
+                        "on-tertiary-fixed-variant": "#653e00",
+                        "inverse-surface": "#313032",
+                        "on-surface": "#1c1b1d",
+                        "tertiary": "#825100",
+                        "tertiary-fixed-dim": "#ffb95f",
+                        "outline": "#767586",
+                        "on-tertiary-container": "#fffbff",
+                        "secondary-fixed-dim": "#4edea3",
+                        "surface-bright": "#fcf8fb",
+                        "primary-container": "#6063ee",
+                        "surface-container-highest": "#e5e1e4",
+                        "secondary": "#006c49",
+                        "background": "#fcf8fb",
+                        "surface": "#fcf8fb",
+                        "secondary-fixed": "#6ffbbe",
+                        "on-secondary-container": "#00714d",
+                        "on-tertiary-fixed": "#2a1700",
+                        "surface-variant": "#e5e1e4",
+                        "on-error-container": "#93000a",
+                        "on-secondary": "#ffffff",
+                        "inverse-on-surface": "#f3f0f2",
+                        "error-container": "#ffdad6",
+                        "on-background": "#1c1b1d",
+                        "tertiary-container": "#a36700",
+                        "surface-container-lowest": "#ffffff",
+                        "primary-fixed": "#e1e0ff",
+                        "on-tertiary": "#ffffff",
+                        "surface-dim": "#dcd9dc",
+                        "on-surface-variant": "#464554",
+                        "inverse-primary": "#c0c1ff"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "xs": "4px",
+                        "lg": "24px",
+                        "sm": "8px",
+                        "gutter": "24px",
+                        "margin-desktop": "48px",
+                        "xl": "40px",
+                        "max-width": "1280px",
+                        "margin-mobile": "16px",
+                        "md": "16px",
+                        "base": "4px"
+                    },
+                    "fontFamily": {
+                        "body-sm": ["Geist"],
+                        "headline-lg": ["Geist"],
+                        "headline-xl": ["Geist"],
+                        "label-sm": ["Geist"],
+                        "headline-lg-mobile": ["Geist"],
+                        "label-md": ["Geist"],
+                        "body-lg": ["Geist"],
+                        "headline-md": ["Geist"],
+                        "headline-xl-mobile": ["Geist"],
+                        "body-md": ["Geist"],
+                        "data-mono": ["JetBrains Mono"]
+                    },
+                    "fontSize": {
+                        "body-sm": ["14px", { "lineHeight": "20px", "fontWeight": "400" }],
+                        "headline-lg": ["30px", { "lineHeight": "38px", "letterSpacing": "-0.02em", "fontWeight": "600" }],
+                        "headline-xl": ["36px", { "lineHeight": "44px", "letterSpacing": "-0.02em", "fontWeight": "600" }],
+                        "label-sm": ["12px", { "lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "500" }],
+                        "headline-lg-mobile": ["24px", { "lineHeight": "30px", "fontWeight": "600" }],
+                        "label-md": ["14px", { "lineHeight": "20px", "fontWeight": "500" }],
+                        "body-lg": ["18px", { "lineHeight": "28px", "fontWeight": "400" }],
+                        "headline-md": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "500" }],
+                        "headline-xl-mobile": ["28px", { "lineHeight": "34px", "fontWeight": "600" }],
+                        "body-md": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
+                        "data-mono": ["12px", { "lineHeight": "16px", "fontWeight": "400" }]
+                    }
+                },
+            },
+        }
+    </script>
+</head>
+<body class="bg-background text-on-surface font-body-md overflow-x-hidden">
+<!-- TopNavBar -->
+<nav class="fixed top-0 w-full z-50 bg-white/90 backdrop-blur-md border-b border-outline-variant flex items-center justify-between px-margin-desktop h-16">
+<div class="flex items-center gap-8">
+<span class="font-headline-md text-headline-md font-bold tracking-tight text-primary">Odyssey</span>
+<div class="hidden md:flex items-center gap-6">
+<a class="text-on-surface-variant font-medium hover:text-primary transition-colors cursor-pointer" href="#">模拟</a>
+<a class="text-on-surface-variant font-medium hover:text-primary transition-colors cursor-pointer" href="#">知识库</a>
+<a class="text-on-surface-variant font-medium hover:text-primary transition-colors cursor-pointer" href="#">智能体实验室</a>
+<a class="text-primary font-bold border-b-2 border-primary pb-1 cursor-pointer" href="#">结果</a>
+<a class="text-on-surface-variant font-medium hover:text-primary transition-colors cursor-pointer" href="#">设置</a>
+</div>
+</div>
+<div class="flex items-center gap-4">
+<div class="relative hidden lg:block">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant text-[20px]">search</span>
+<input class="bg-surface-container-low border border-outline-variant rounded-full pl-10 pr-4 py-1.5 text-body-sm w-64 focus:ring-1 focus:ring-primary focus:bg-white transition-all" placeholder="搜索模拟..." type="text"/>
+</div>
+<button class="material-symbols-outlined text-on-surface-variant hover:text-primary">notifications</button>
+<button class="material-symbols-outlined text-on-surface-variant hover:text-primary">account_circle</button>
+</div>
+</nav>
+<!-- SideNavBar -->
+<aside class="fixed left-0 top-16 h-[calc(100vh-64px)] w-64 bg-surface-container-lowest border-r border-outline-variant flex flex-col p-md space-y-4 z-40">
+<div class="flex items-center gap-3 px-2 py-4">
+<div class="w-10 h-10 rounded-lg bg-primary-fixed flex items-center justify-center">
+<span class="material-symbols-outlined text-primary">precision_manufacturing</span>
+</div>
+<div>
+<h3 class="font-headline-sm text-[16px] font-bold text-on-surface">Simulation Alpha</h3>
+<p class="font-body-sm text-xs text-on-surface-variant">v2.4.1-stable</p>
+</div>
+</div>
+<button class="w-full py-3 bg-primary text-on-primary font-bold rounded-lg flex items-center justify-center gap-2 hover:opacity-90 shadow-sm">
+<span class="material-symbols-outlined">add</span>
+        开启新运行
+    </button>
+<div class="flex-1 space-y-1 pt-4">
+<a class="flex items-center gap-3 px-3 py-2.5 text-on-surface-variant hover:bg-surface-container-low transition-all rounded-lg" href="#">
+<span class="material-symbols-outlined">account_tree</span>
+<span class="font-body-md">流水线</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2.5 text-on-surface-variant hover:bg-surface-container-low transition-all rounded-lg" href="#">
+<span class="material-symbols-outlined">psychology</span>
+<span class="font-body-md">模型</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2.5 text-primary bg-primary-fixed/30 rounded-lg" href="#">
+<span class="material-symbols-outlined">query_stats</span>
+<span class="font-body-md font-bold">遥测数据</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2.5 text-on-surface-variant hover:bg-surface-container-low transition-all rounded-lg" href="#">
+<span class="material-symbols-outlined">list_alt</span>
+<span class="font-body-md">日志</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2.5 text-on-surface-variant hover:bg-surface-container-low transition-all rounded-lg" href="#">
+<span class="material-symbols-outlined">terminal</span>
+<span class="font-body-md">终端</span>
+</a>
+</div>
+<div class="pt-4 border-t border-outline-variant">
+<a class="flex items-center gap-3 px-3 py-2 text-on-surface-variant hover:bg-surface-container-low transition-all rounded-lg" href="#">
+<span class="material-symbols-outlined">help_outline</span>
+<span class="font-body-sm">帮助</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 text-on-surface-variant hover:bg-surface-container-low transition-all rounded-lg" href="#">
+<span class="material-symbols-outlined">description</span>
+<span class="font-body-sm">文档</span>
+</a>
+</div>
+</aside>
+<!-- Main Content -->
+<main class="ml-64 mt-16 p-lg lg:p-margin-desktop min-h-screen">
+<!-- Header Section -->
+<section class="grid grid-cols-1 lg:grid-cols-3 gap-gutter mb-gutter">
+<div class="lg:col-span-2 glass-panel p-lg flex flex-col justify-between">
+<div>
+<span class="font-label-md text-primary uppercase mb-2 block tracking-widest">优化结果</span>
+<h1 class="font-headline-lg text-headline-lg mb-6 text-on-surface">获胜策略: <span class="text-primary font-bold">自适应前沿</span></h1>
+<div class="flex items-center gap-8 mb-8">
+<div class="flex items-center gap-4">
+<div class="w-14 h-14 rounded-full ring-2 ring-primary-fixed ring-offset-2 overflow-hidden bg-surface-container-low">
+<img alt="Agent Avatar" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDjvkEjNWEtxG2UEbYuXIx26icowthBFFn_iEwwefQFM-bRb1hSwZzZp-mBJfq8PZQPCIrkGV00udyToZdZ-KzrWz2IReAtJRCsiYlmUfR4jyCrI-z02V4tI_o7lFcVoGg110qNGlNhNpUKr8MkFj3BxaD9u03UEz9fspRmTOsdyA39DjVH1EsalEVvLycnaOq1Rsm7a1FnfYMoPMYFFod5fQ3Okf2rQnPmfs6pNcVpyNi7W-V5rPLXvZxdY5YdoXq6EKXLHNc5Ok-M"/>
+</div>
+<div>
+<p class="text-body-sm text-on-surface-variant">冠军智能体</p>
+<p class="font-headline-sm text-on-surface">Xenon-9 Turbo</p>
+</div>
+</div>
+<div class="h-10 w-px bg-outline-variant"></div>
+<div>
+<p class="text-body-sm text-on-surface-variant">成功收敛度</p>
+<p class="font-headline-sm text-secondary">高置信度</p>
+</div>
+</div>
+</div>
+<div class="grid grid-cols-3 gap-4">
+<div class="bg-surface-container-low p-4 rounded-lg">
+<p class="text-label-md text-on-surface-variant mb-1">资源效率</p>
+<p class="font-data-mono text-headline-md text-primary">88.4%</p>
+</div>
+<div class="bg-surface-container-low p-4 rounded-lg">
+<p class="text-label-md text-on-surface-variant mb-1">市场占有</p>
+<p class="font-data-mono text-headline-md text-on-surface">+14.2M</p>
+</div>
+<div class="bg-surface-container-low p-4 rounded-lg">
+<p class="text-label-md text-on-surface-variant mb-1">风险暴露</p>
+<p class="font-data-mono text-headline-md text-error">低</p>
+</div>
+</div>
+</div>
+<!-- Probability Circle -->
+<div class="glass-panel p-lg flex flex-col items-center justify-center text-center relative overflow-hidden bg-white">
+<div class="relative w-48 h-48 mb-4">
+<svg class="w-full h-full transform -rotate-90">
+<circle class="text-surface-container-highest" cx="96" cy="96" fill="transparent" r="88" stroke="currentColor" stroke-width="8"></circle>
+<circle class="text-primary glow-pulse" cx="96" cy="96" fill="transparent" r="88" stroke="currentColor" stroke-dasharray="552.92" stroke-dashoffset="33.17" stroke-linecap="round" stroke-width="12"></circle>
+</svg>
+<div class="absolute inset-0 flex flex-col items-center justify-center">
+<span class="font-data-mono text-6xl font-bold text-on-surface">94<span class="text-2xl text-primary">%</span></span>
+<p class="text-label-md text-on-surface-variant tracking-widest mt-[-4px]">成功概率</p>
+</div>
+</div>
+<div class="w-full flex justify-between items-center text-body-sm pt-4 border-t border-outline-variant">
+<span class="text-on-surface-variant">P-值: 0.002</span>
+<span class="text-secondary font-bold flex items-center gap-1">
+<span class="material-symbols-outlined text-[16px]">trending_up</span>
+                    较基准 +2.4%
+                </span>
+</div>
+</div>
+</section>
+<!-- Simplified Timeline Section -->
+<section class="mb-gutter">
+<div class="flex items-center justify-between mb-6">
+<h2 class="font-headline-md flex items-center gap-2 text-on-surface">
+<span class="material-symbols-outlined text-primary">timeline</span>
+                决策时间轴
+            </h2>
+<div class="flex gap-2">
+<button class="px-4 py-2 bg-surface-container-high rounded text-body-sm font-medium hover:bg-surface-variant transition-colors border border-outline-variant">导出 CSV</button>
+<button class="px-4 py-2 bg-primary-fixed text-primary rounded text-body-sm font-bold hover:bg-primary-fixed-dim transition-colors">可视化器</button>
+</div>
+</div>
+<div class="glass-panel p-8 overflow-x-auto bg-white">
+<div class="min-w-[900px] flex justify-between relative px-8">
+<!-- Progress Line -->
+<div class="absolute top-[32px] left-8 right-8 h-1 bg-surface-container-highest rounded-full"></div>
+<div class="absolute top-[32px] left-8 w-[60%] h-1 bg-primary rounded-full shadow-sm"></div>
+<!-- Timestamps -->
+<div class="relative z-10 flex flex-col items-center group w-48">
+<div class="w-16 h-16 mb-6 flex flex-col items-center justify-center bg-white border-2 border-primary rounded-xl shadow-md group-hover:scale-105 transition-transform cursor-pointer">
+<span class="text-xs font-bold text-primary">T1</span>
+<span class="font-data-mono text-sm">08:00</span>
+</div>
+<div class="text-center">
+<span class="inline-block px-3 py-1 bg-secondary-container/20 text-secondary text-[10px] font-bold rounded-full mb-3">思考</span>
+<p class="text-body-sm font-medium">识别 7-G 扇区的潜在信号</p>
+<p class="text-body-sm text-primary font-bold mt-2">行动: 分配 15%</p>
+</div>
+</div>
+<div class="relative z-10 flex flex-col items-center group w-48">
+<div class="w-16 h-16 mb-6 flex flex-col items-center justify-center bg-white border-2 border-primary rounded-xl shadow-md group-hover:scale-105 transition-transform cursor-pointer">
+<span class="text-xs font-bold text-primary">T2</span>
+<span class="font-data-mono text-sm">11:30</span>
+</div>
+<div class="text-center">
+<span class="inline-block px-3 py-1 bg-primary-fixed/30 text-primary text-[10px] font-bold rounded-full mb-3">决策</span>
+<p class="text-body-sm font-medium">触发激进收购策略</p>
+<p class="text-body-sm text-primary font-bold mt-2">行动: 买入阶段一</p>
+</div>
+</div>
+<div class="relative z-10 flex flex-col items-center group w-48">
+<div class="w-16 h-16 mb-6 flex flex-col items-center justify-center bg-white border-2 border-primary rounded-xl shadow-md group-hover:scale-105 transition-transform cursor-pointer">
+<span class="text-xs font-bold text-primary">T3</span>
+<span class="font-data-mono text-sm">14:15</span>
+</div>
+<div class="text-center">
+<span class="inline-block px-3 py-1 bg-tertiary-fixed/30 text-tertiary text-[10px] font-bold rounded-full mb-3">结果</span>
+<p class="text-body-sm font-medium">投资组合增值 +4.8%</p>
+<p class="text-body-sm text-primary font-bold mt-2">行动: 稳定化</p>
+</div>
+</div>
+<div class="relative z-10 flex flex-col items-center opacity-40 grayscale w-48">
+<div class="w-16 h-16 mb-6 flex flex-col items-center justify-center bg-surface-container border-2 border-outline-variant rounded-xl">
+<span class="text-xs font-bold text-on-surface-variant">T4</span>
+<span class="font-data-mono text-sm">17:00</span>
+</div>
+<div class="text-center">
+<span class="inline-block px-3 py-1 bg-surface-variant text-on-surface-variant text-[10px] font-bold rounded-full mb-3">预期</span>
+<p class="text-body-sm italic">等待最终模拟...</p>
+</div>
+</div>
+</div>
+</div>
+</section>
+<!-- Counterfactual Analysis Section -->
+<section class="grid grid-cols-1 lg:grid-cols-2 gap-gutter mb-gutter">
+<div class="col-span-full">
+<h2 class="font-headline-md mb-4 flex items-center gap-2 text-on-surface">
+<span class="material-symbols-outlined text-tertiary">alt_route</span>
+                反事实分析
+            </h2>
+</div>
+<div class="glass-panel p-lg border-t-4 border-t-secondary bg-white">
+<div class="flex justify-between items-start mb-6">
+<div>
+<span class="text-xs font-bold text-secondary uppercase mb-1 block">已选路径</span>
+<h3 class="font-headline-sm font-bold text-on-surface">实际决策: <span class="text-secondary">扩张</span></h3>
+</div>
+<span class="material-symbols-outlined text-secondary text-[32px]">check_circle</span>
+</div>
+<p class="text-body-md text-on-surface-variant mb-6">模拟 Xenon-9 选择大规模资源获取，以利用新兴市场周期的先发优势。</p>
+<div class="space-y-4 pt-4 border-t border-outline-variant/30">
+<div class="flex justify-between items-center">
+<span class="text-body-sm text-on-surface-variant">预期营收</span>
+<span class="font-data-mono font-bold text-primary">$42.5M</span>
+</div>
+<div class="flex justify-between items-center">
+<span class="text-body-sm text-on-surface-variant">风险饱和度</span>
+<span class="font-data-mono font-bold text-error">12%</span>
+</div>
+<div class="flex justify-between items-center">
+<span class="text-body-sm text-on-surface-variant">价值实现周期</span>
+<span class="font-data-mono font-bold text-on-surface">14 天</span>
+</div>
+</div>
+</div>
+<div class="glass-panel p-lg border-t-4 border-t-tertiary bg-white">
+<div class="flex justify-between items-start mb-6">
+<div>
+<span class="text-xs font-bold text-tertiary uppercase mb-1 block">替代方案</span>
+<h3 class="font-headline-sm font-bold text-on-surface">替代方案: <span class="text-tertiary">整合</span></h3>
+</div>
+<span class="material-symbols-outlined text-tertiary text-[32px]">cancel</span>
+</div>
+<p class="text-body-md text-on-surface-variant mb-6">保守模型建议采取防御性定位，等待监管明确化，以避免潜在的短期波动。</p>
+<div class="space-y-4 pt-4 border-t border-outline-variant/30">
+<div class="flex justify-between items-center">
+<span class="text-body-sm text-on-surface-variant">预期营收</span>
+<span class="font-data-mono font-bold text-primary">$28.1M</span>
+</div>
+<div class="flex justify-between items-center">
+<span class="text-body-sm text-on-surface-variant">风险饱和度</span>
+<span class="font-data-mono font-bold text-secondary">4%</span>
+</div>
+<div class="flex justify-between items-center">
+<span class="text-body-sm text-on-surface-variant">价值实现周期</span>
+<span class="font-data-mono font-bold text-on-surface">45 天</span>
+</div>
+</div>
+</div>
+<div class="col-span-full glass-panel p-4 flex items-center justify-between bg-primary-fixed/20 border-primary-fixed">
+<div class="flex items-center gap-4">
+<div class="p-2 bg-primary/10 rounded text-primary">
+<span class="material-symbols-outlined">trending_up</span>
+</div>
+<div>
+<p class="text-xs font-bold text-primary uppercase">结果差异 (DELTA)</p>
+<p class="text-body-md">实际决策较保守路线多产生 <span class="font-bold text-primary">+$14.4M</span> 的额外收入。</p>
+</div>
+</div>
+<button class="px-4 py-2 bg-white border border-primary-fixed text-primary rounded-lg text-xs font-bold hover:bg-primary-fixed/10 transition-all">深度对比</button>
+</div>
+</section>
+<!-- Visual Analytics Grid -->
+<section class="grid grid-cols-1 md:grid-cols-3 gap-gutter mb-gutter">
+<div class="glass-panel p-lg h-64 flex flex-col bg-white">
+<div class="flex items-center justify-between mb-6">
+<span class="text-label-md font-bold text-on-surface-variant">蒙特卡洛分布</span>
+<span class="material-symbols-outlined text-primary text-[20px]">show_chart</span>
+</div>
+<div class="flex-1 flex items-end gap-2 px-2">
+<div class="flex-1 bg-primary/10 h-[20%] rounded-t"></div>
+<div class="flex-1 bg-primary/20 h-[40%] rounded-t"></div>
+<div class="flex-1 bg-primary/40 h-[65%] rounded-t"></div>
+<div class="flex-1 bg-primary/70 h-[90%] rounded-t"></div>
+<div class="flex-1 bg-primary h-[100%] rounded-t"></div>
+<div class="flex-1 bg-primary/70 h-[80%] rounded-t"></div>
+<div class="flex-1 bg-primary/40 h-[55%] rounded-t"></div>
+<div class="flex-1 bg-primary/20 h-[30%] rounded-t"></div>
+</div>
+<div class="mt-3 text-[10px] flex justify-between font-data-mono text-on-surface-variant uppercase tracking-tighter">
+<span>低收益</span>
+<span>预期中值</span>
+<span>高收益</span>
+</div>
+</div>
+<div class="glass-panel p-lg h-64 flex flex-col bg-white">
+<div class="flex items-center justify-between mb-6">
+<span class="text-label-md font-bold text-on-surface-variant">资源利用率</span>
+<span class="material-symbols-outlined text-primary text-[20px]">finance</span>
+</div>
+<div class="flex-1 relative">
+<svg class="w-full h-full" preserveaspectratio="none" viewbox="0 0 200 100">
+<path d="M0,80 Q25,75 50,60 T100,40 T150,20 T200,50" fill="none" stroke="#006c49" stroke-width="3"></path>
+<path d="M0,90 Q25,85 50,75 T100,65 T150,55 T200,60" fill="none" stroke="#4648d4" stroke-dasharray="4" stroke-width="2"></path>
+</svg>
+<div class="absolute top-4 left-1/2 transform -translate-x-1/2">
+<div class="bg-primary text-white px-2 py-1 rounded text-[10px] font-bold shadow-sm">
+                        峰值: 84%
+                    </div>
+</div>
+</div>
+<div class="mt-3 flex gap-4 text-[10px] font-bold text-on-surface-variant">
+<div class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-secondary"></span> 实际消耗</div>
+<div class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-sm border-2 border-primary border-dotted"></span> 理论产能</div>
+</div>
+</div>
+<div class="glass-panel p-lg h-64 flex flex-col bg-white">
+<div class="flex items-center justify-between mb-6">
+<span class="text-label-md font-bold text-on-surface-variant">压力测试热力图</span>
+<span class="material-symbols-outlined text-primary text-[20px]">grid_view</span>
+</div>
+<div class="flex-1 grid grid-cols-4 grid-rows-4 gap-1.5">
+<div class="bg-surface-container"></div><div class="bg-surface-container"></div><div class="bg-secondary/20"></div><div class="bg-secondary/10"></div>
+<div class="bg-surface-container"></div><div class="bg-tertiary/20"></div><div class="bg-secondary/40"></div><div class="bg-secondary/20"></div>
+<div class="bg-tertiary/10"></div><div class="bg-error/30"></div><div class="bg-tertiary/40"></div><div class="bg-secondary/20"></div>
+<div class="bg-error/20"></div><div class="bg-error/50"></div><div class="bg-error/30"></div><div class="bg-tertiary/30"></div>
+</div>
+<div class="mt-3 flex items-center gap-2">
+<span class="text-[10px] font-bold text-on-surface-variant">安全</span>
+<div class="h-1.5 flex-1 bg-gradient-to-r from-secondary/40 via-tertiary/40 to-error/60 rounded-full"></div>
+<span class="text-[10px] font-bold text-on-surface-variant">高危</span>
+</div>
+</div>
+</section>
+<!-- Simplified Strategic Roadmap -->
+<section class="mb-gutter">
+<h2 class="font-headline-md mb-6 flex items-center gap-2 text-on-surface">
+<span class="material-symbols-outlined text-primary">map</span>
+            最终战略路线图
+        </h2>
+<div class="space-y-3">
+<div class="glass-panel p-6 flex flex-col md:flex-row gap-6 items-center hover:bg-surface-container-low transition-colors bg-white">
+<div class="w-full md:w-24 text-center">
+<span class="text-[10px] font-bold text-on-surface-variant block uppercase">阶段</span>
+<span class="font-data-mono text-3xl font-bold text-primary">01</span>
+</div>
+<div class="flex-1">
+<h4 class="font-headline-sm text-[18px] text-on-surface mb-1">基础设施部署</h4>
+<p class="text-body-sm text-on-surface-variant">在主要扇区部署边缘节点，建立高频通信协议</p>
+</div>
+<div class="flex items-center gap-8 px-6 border-l border-outline-variant">
+<div class="text-right">
+<span class="block text-[10px] font-bold text-on-surface-variant uppercase">预估成本</span>
+<span class="font-data-mono font-bold">$2.4M</span>
+</div>
+<div class="text-right">
+<span class="block text-[10px] font-bold text-on-surface-variant uppercase">耗时</span>
+<span class="font-data-mono font-bold">4 天</span>
+</div>
+<span class="material-symbols-outlined text-secondary font-bold">verified</span>
+</div>
+</div>
+<div class="glass-panel p-6 flex flex-col md:flex-row gap-6 items-center hover:bg-surface-container-low transition-colors bg-white border-2 border-primary-fixed">
+<div class="w-full md:w-24 text-center">
+<span class="text-[10px] font-bold text-on-surface-variant block uppercase">阶段</span>
+<span class="font-data-mono text-3xl font-bold text-primary">02</span>
+</div>
+<div class="flex-1">
+<h4 class="font-headline-sm text-[18px] text-on-surface mb-1">主动收购</h4>
+<p class="text-body-sm text-on-surface-variant">针对低估流动性池针对低估流动性池启动算法采购周期</p>
+</div>
+<div class="flex items-center gap-8 px-6 border-l border-outline-variant">
+<div class="text-right">
+<span class="block text-[10px] font-bold text-on-surface-variant uppercase">预估成本</span>
+<span class="font-data-mono font-bold">$18.2M</span>
+</div>
+<div class="text-right">
+<span class="block text-[10px] font-bold text-on-surface-variant uppercase">耗时</span>
+<span class="font-data-mono font-bold">8 天</span>
+</div>
+<span class="material-symbols-outlined text-tertiary">hourglass_top</span>
+</div>
+</div>
+<div class="glass-panel p-6 flex flex-col md:flex-row gap-6 items-center bg-surface-container-low opacity-60">
+<div class="w-full md:w-24 text-center">
+<span class="text-[10px] font-bold text-on-surface-variant block uppercase">阶段</span>
+<span class="font-data-mono text-3xl font-bold text-on-surface-variant">03</span>
+</div>
+<div class="flex-1">
+<h4 class="font-headline-sm text-[18px] text-on-surface-variant mb-1">均衡与治理</h4>
+<p class="text-body-sm text-on-surface-variant">敲定市场地位并过渡到长期监控和治理模式</p>
+</div>
+<div class="flex items-center gap-8 px-6 border-l border-outline-variant">
+<div class="text-right">
+<span class="block text-[10px] font-bold text-on-surface-variant uppercase">预估成本</span>
+<span class="font-data-mono font-bold">$0.8M</span>
+</div>
+<div class="text-right">
+<span class="block text-[10px] font-bold text-on-surface-variant uppercase">耗时</span>
+<span class="font-data-mono font-bold">2 天</span>
+</div>
+<span class="material-symbols-outlined text-on-surface-variant">lock</span>
+</div>
+</div>
+</div>
+</section>
+<!-- Action Footer -->
+<footer class="mt-12 flex flex-col md:flex-row justify-between items-center py-8 border-t border-outline-variant gap-6">
+<p class="text-body-sm text-on-surface-variant">报告生成于 Odyssey OS, 2024.05.24 16:42:11 UTC</p>
+<div class="flex gap-4">
+<button class="px-8 py-3 border border-outline-variant rounded-lg font-bold text-on-surface hover:bg-surface-container-low transition-all">下载 PDF</button>
+<button class="px-8 py-3 bg-primary text-on-primary rounded-lg font-bold hover:shadow-lg hover:translate-y-[-1px] transition-all flex items-center gap-2">
+                执行路线图
+                <span class="material-symbols-outlined">rocket_launch</span>
+</button>
+</div>
+</footer>
+</main>
+</body></html>

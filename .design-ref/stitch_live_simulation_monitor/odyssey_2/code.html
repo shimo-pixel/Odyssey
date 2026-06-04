@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+
+<html class="light" lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Odyssey | 平行现实决策模拟器</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@100..900&amp;family=JetBrains+Mono:wght@100..800&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "on-primary-fixed": "#07006c",
+                        "surface-tint": "#494bd6",
+                        "outline-variant": "#c7c4d7",
+                        "error": "#ba1a1a",
+                        "on-primary-fixed-variant": "#2f2ebe",
+                        "primary-fixed-dim": "#c0c1ff",
+                        "tertiary-fixed": "#ffddb8",
+                        "surface-container-low": "#f6f2f5",
+                        "on-error": "#ffffff",
+                        "on-secondary-fixed": "#002113",
+                        "on-secondary-fixed-variant": "#005236",
+                        "primary": "#4648d4",
+                        "surface-container-high": "#eae7ea",
+                        "on-primary-container": "#fffbff",
+                        "on-primary": "#ffffff",
+                        "surface-container": "#f0edf0",
+                        "secondary-container": "#6cf8bb",
+                        "on-tertiary-fixed-variant": "#653e00",
+                        "inverse-surface": "#313032",
+                        "on-surface": "#1c1b1d",
+                        "tertiary": "#825100",
+                        "tertiary-fixed-dim": "#ffb95f",
+                        "outline": "#767586",
+                        "on-tertiary-container": "#fffbff",
+                        "secondary-fixed-dim": "#4edea3",
+                        "surface-bright": "#fcf8fb",
+                        "primary-container": "#6063ee",
+                        "surface-container-highest": "#e5e1e4",
+                        "secondary": "#006c49",
+                        "background": "#fcf8fb",
+                        "surface": "#fcf8fb",
+                        "secondary-fixed": "#6ffbbe",
+                        "on-secondary-container": "#00714d",
+                        "on-tertiary-fixed": "#2a1700",
+                        "surface-variant": "#e5e1e4",
+                        "on-error-container": "#93000a",
+                        "on-secondary": "#ffffff",
+                        "inverse-on-surface": "#f3f0f2",
+                        "error-container": "#ffdad6",
+                        "on-background": "#1c1b1d",
+                        "tertiary-container": "#a36700",
+                        "surface-container-lowest": "#ffffff",
+                        "primary-fixed": "#e1e0ff",
+                        "on-tertiary": "#ffffff",
+                        "surface-dim": "#dcd9dc",
+                        "on-surface-variant": "#464554",
+                        "inverse-primary": "#c0c1ff"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "xs": "4px",
+                        "lg": "24px",
+                        "sm": "8px",
+                        "gutter": "24px",
+                        "margin-desktop": "48px",
+                        "xl": "40px",
+                        "max-width": "1280px",
+                        "margin-mobile": "16px",
+                        "md": "16px",
+                        "base": "4px"
+                    },
+                    "fontFamily": {
+                        "body-sm": ["Geist"],
+                        "headline-lg": ["Geist"],
+                        "headline-xl": ["Geist"],
+                        "label-sm": ["Geist"],
+                        "headline-lg-mobile": ["Geist"],
+                        "label-md": ["Geist"],
+                        "body-lg": ["Geist"],
+                        "headline-md": ["Geist"],
+                        "headline-xl-mobile": ["Geist"],
+                        "body-md": ["Geist"]
+                    },
+                    "fontSize": {
+                        "body-sm": ["14px", {"lineHeight": "20px", "fontWeight": "400"}],
+                        "headline-lg": ["30px", {"lineHeight": "38px", "letterSpacing": "-0.02em", "fontWeight": "600"}],
+                        "headline-xl": ["36px", {"lineHeight": "44px", "letterSpacing": "-0.02em", "fontWeight": "600"}],
+                        "label-sm": ["12px", {"lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "500"}],
+                        "headline-lg-mobile": ["24px", {"lineHeight": "30px", "fontWeight": "600"}],
+                        "label-md": ["14px", {"lineHeight": "20px", "fontWeight": "500"}],
+                        "body-lg": ["18px", {"lineHeight": "28px", "fontWeight": "400"}],
+                        "headline-md": ["24px", {"lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "500"}],
+                        "headline-xl-mobile": ["28px", {"lineHeight": "34px", "fontWeight": "600"}],
+                        "body-md": ["16px", {"lineHeight": "24px", "fontWeight": "400"}]
+                    }
+                },
+            },
+        }
+    </script>
+<style>
+        body {
+            background-color: #fcf8fb;
+            color: #1c1b1d;
+            font-family: 'Geist', sans-serif;
+            overflow: hidden;
+        }
+        .clean-panel {
+            background: #ffffff;
+            border: 1px solid #c7c4d7;
+        }
+        .step-active::before {
+            content: '';
+            position: absolute;
+            left: 7px;
+            top: 24px;
+            bottom: -8px;
+            width: 2px;
+            background: #e5e1e4;
+        }
+        .step-complete::before {
+            content: '';
+            position: absolute;
+            left: 7px;
+            top: 24px;
+            bottom: -8px;
+            width: 2px;
+            background: #4648d4;
+        }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        
+        @keyframes pulse-dot {
+            0% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.3); opacity: 0.7; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+        .animate-pulse-dot { animation: pulse-dot 2s infinite ease-in-out; }
+    </style>
+</head>
+<body class="bg-background text-on-surface selection:bg-primary/20">
+<!-- TopNavBar -->
+<header class="fixed top-0 w-full z-50 bg-surface/90 backdrop-blur-md border-b border-outline-variant flex items-center justify-between px-margin-desktop h-16">
+<div class="flex items-center gap-8">
+<div class="font-headline-md text-headline-md font-bold tracking-tight text-primary cursor-pointer active:scale-95 transition-all duration-200">
+            Odyssey
+        </div>
+<nav class="hidden md:flex items-center gap-6">
+<a class="text-primary font-bold border-b-2 border-primary pb-1 text-[14px] cursor-pointer">模拟</a>
+<a class="text-on-surface-variant font-medium text-[14px] hover:text-primary transition-colors duration-200 cursor-pointer">知识库</a>
+<a class="text-on-surface-variant font-medium text-[14px] hover:text-primary transition-colors duration-200 cursor-pointer">智能体实验室</a>
+<a class="text-on-surface-variant font-medium text-[14px] hover:text-primary transition-colors duration-200 cursor-pointer">结果</a>
+<a class="text-on-surface-variant font-medium text-[14px] hover:text-primary transition-colors duration-200 cursor-pointer">设置</a>
+</nav>
+</div>
+<div class="flex items-center gap-4">
+<button class="p-2 text-on-surface-variant hover:text-primary transition-colors cursor-pointer">
+<span class="material-symbols-outlined">notifications</span>
+</button>
+<button class="p-2 text-on-surface-variant hover:text-primary transition-colors cursor-pointer">
+<span class="material-symbols-outlined">account_circle</span>
+</button>
+</div>
+</header>
+<!-- SideNavBar -->
+<aside class="fixed left-0 top-16 h-[calc(100vh-64px)] w-64 bg-surface-container-low border-r border-outline-variant flex flex-col p-6 space-y-4">
+<div class="py-2">
+<div class="text-[16px] font-bold text-on-surface">Simulation Alpha</div>
+<div class="text-[12px] text-on-surface-variant">v2.4.1-stable</div>
+</div>
+<div class="flex-1 overflow-y-auto no-scrollbar space-y-6 pt-4">
+<div class="space-y-4">
+<div class="relative flex gap-3 step-complete">
+<div class="z-10 w-4 h-4 rounded-full bg-primary flex items-center justify-center">
+<span class="material-symbols-outlined text-[10px] text-on-primary font-bold">check</span>
+</div>
+<div class="flex flex-col">
+<span class="text-[10px] text-primary uppercase font-bold tracking-wider">已完成</span>
+<span class="text-[14px] text-on-surface font-medium">现状分析</span>
+</div>
+</div>
+<div class="relative flex gap-3 step-active">
+<div class="z-10 w-4 h-4 rounded-full bg-primary-container ring-4 ring-primary-container/30 flex items-center justify-center">
+<div class="w-1.5 h-1.5 rounded-full bg-primary animate-pulse-dot"></div>
+</div>
+<div class="flex flex-col">
+<span class="text-[10px] text-secondary uppercase font-bold tracking-wider">活跃</span>
+<span class="text-[14px] text-on-surface font-bold">目标定义</span>
+</div>
+</div>
+<div class="relative flex gap-3 step-active">
+<div class="z-10 w-4 h-4 rounded-full bg-surface-variant border border-outline flex items-center justify-center"></div>
+<div class="flex flex-col">
+<span class="text-[10px] text-on-surface-variant uppercase font-bold tracking-wider">待处理</span>
+<span class="text-[14px] text-on-surface-variant">本体建模</span>
+</div>
+</div>
+<div class="relative flex gap-3 step-active">
+<div class="z-10 w-4 h-4 rounded-full bg-surface-variant border border-outline flex items-center justify-center"></div>
+<div class="flex flex-col">
+<span class="text-[10px] text-on-surface-variant uppercase font-bold tracking-wider">待处理</span>
+<span class="text-[14px] text-on-surface-variant">知识图谱</span>
+</div>
+</div>
+<div class="relative flex gap-3 step-active">
+<div class="z-10 w-4 h-4 rounded-full bg-surface-variant border border-outline flex items-center justify-center"></div>
+<div class="flex flex-col">
+<span class="text-[10px] text-on-surface-variant uppercase font-bold tracking-wider">待处理</span>
+<span class="text-[14px] text-on-surface-variant">智能体生成</span>
+</div>
+</div>
+<div class="relative flex gap-3">
+<div class="z-10 w-4 h-4 rounded-full bg-surface-variant border border-outline flex items-center justify-center"></div>
+<div class="flex flex-col">
+<span class="text-[10px] text-on-surface-variant uppercase font-bold tracking-wider">待处理</span>
+<span class="text-[14px] text-on-surface-variant">最终策略</span>
+</div>
+</div>
+</div>
+</div>
+<div class="pt-4 border-t border-outline-variant">
+<button class="w-full bg-primary text-on-primary py-2.5 rounded-lg text-[14px] font-bold flex items-center justify-center gap-2 transition-all hover:bg-primary/90 active:scale-95">
+<span class="material-symbols-outlined text-[18px]">add</span>
+            新运行
+        </button>
+</div>
+</aside>
+<!-- Main Content -->
+<main class="pl-64 pr-[580px] pt-16 h-screen overflow-y-auto no-scrollbar">
+<div class="p-10 max-w-4xl mx-auto space-y-12">
+<section class="space-y-4">
+<h1 class="text-[32px] font-bold text-on-surface tracking-tight">平行现实决策模拟器</h1>
+<p class="text-[16px] text-on-surface-variant leading-relaxed">
+                使用多智能体启发式模型探索数千种可能的未来。上传您的背景信息并定义您期望的最终状态以开始预测。
+            </p>
+</section>
+<section class="space-y-8">
+<!-- Situation Input -->
+<div class="space-y-4">
+<label class="text-[12px] text-primary font-bold uppercase tracking-widest">现状分析</label>
+<div class="clean-panel rounded-xl overflow-hidden focus-within:ring-2 ring-primary/20 transition-all">
+<textarea class="w-full bg-transparent border-none focus:ring-0 p-6 font-mono text-[14px] min-h-[260px] text-on-surface placeholder:text-outline" placeholder="描述当前的市场状况、内部资产和即时约束..."></textarea>
+<div class="bg-surface-container-low p-3 flex items-center justify-between border-t border-outline-variant">
+<div class="flex gap-1">
+<button class="p-2 hover:bg-surface-variant rounded-md transition-colors text-on-surface-variant" title="上传 PDF">
+<span class="material-symbols-outlined text-[20px]">picture_as_pdf</span>
+</button>
+<button class="p-2 hover:bg-surface-variant rounded-md transition-colors text-on-surface-variant" title="上传图片">
+<span class="material-symbols-outlined text-[20px]">image</span>
+</button>
+<button class="p-2 hover:bg-surface-variant rounded-md transition-colors text-on-surface-variant" title="导入 Markdown">
+<span class="material-symbols-outlined text-[20px]">description</span>
+</button>
+</div>
+<span class="font-mono text-[11px] text-outline px-2">支持 MD • 0/5000 字</span>
+</div>
+</div>
+</div>
+<!-- Goal Input -->
+<div class="space-y-4">
+<label class="text-[12px] text-primary font-bold uppercase tracking-widest">目标定义</label>
+<div class="clean-panel rounded-xl flex items-center px-6 py-5 focus-within:ring-2 ring-primary/20 transition-all">
+<span class="material-symbols-outlined text-primary mr-4">target</span>
+<input class="bg-transparent border-none focus:ring-0 w-full text-[18px] font-medium p-0 text-on-surface placeholder:text-outline" placeholder="例如：3年内达到1000万营收" type="text"/>
+</div>
+</div>
+<!-- CTA -->
+<div class="flex justify-center pt-6">
+<button class="bg-primary text-on-primary px-16 py-4 rounded-full text-[18px] font-bold hover:shadow-xl hover:shadow-primary/20 transition-all active:scale-95 flex items-center gap-3">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">play_arrow</span>
+                    开始模拟
+                </button>
+</div>
+</section>
+</div>
+</main>
+<!-- Right Side Panels -->
+<aside class="fixed right-0 top-16 h-[calc(100vh-64px)] w-[580px] border-l border-outline-variant flex overflow-hidden">
+<!-- Telemetry -->
+<div class="w-1/2 h-full bg-surface-container-lowest p-6 overflow-y-auto no-scrollbar border-r border-outline-variant">
+<div class="flex items-center justify-between mb-8">
+<h2 class="text-[11px] font-bold text-on-surface-variant uppercase tracking-widest">遥测数据</h2>
+<span class="text-[10px] font-mono text-secondary px-2 py-0.5 bg-secondary/10 rounded">实时馈送</span>
+</div>
+<div class="grid grid-cols-1 gap-4">
+<!-- Market -->
+<div class="clean-panel p-5 rounded-xl space-y-3">
+<div class="flex justify-between items-center">
+<span class="text-[12px] text-on-surface-variant font-medium">市场状态</span>
+<span class="text-secondary material-symbols-outlined text-[18px]">trending_up</span>
+</div>
+<div class="flex items-end justify-between">
+<div class="text-[28px] font-bold text-on-surface">84.2<span class="text-[14px] text-on-surface-variant font-normal">%</span></div>
+<div class="flex items-end gap-1 h-6">
+<div class="w-1.5 bg-secondary/30 h-2 rounded-t-sm"></div>
+<div class="w-1.5 bg-secondary/50 h-4 rounded-t-sm"></div>
+<div class="w-1.5 bg-secondary h-6 rounded-t-sm"></div>
+</div>
+</div>
+</div>
+<!-- Competition -->
+<div class="clean-panel p-5 rounded-xl space-y-3">
+<div class="flex justify-between items-center">
+<span class="text-[12px] text-on-surface-variant font-medium">竞争指数</span>
+<span class="text-error material-symbols-outlined text-[18px]">warning</span>
+</div>
+<div class="flex items-end justify-between">
+<div class="text-[28px] font-bold text-on-surface">0.68</div>
+<div class="flex items-end gap-1 h-6">
+<div class="w-1.5 bg-error h-6 rounded-t-sm"></div>
+<div class="w-1.5 bg-error/70 h-4 rounded-t-sm"></div>
+<div class="w-1.5 bg-error/40 h-3 rounded-t-sm"></div>
+</div>
+</div>
+</div>
+<!-- Resources -->
+<div class="clean-panel p-5 rounded-xl space-y-3">
+<span class="text-[12px] text-on-surface-variant font-medium block">资源水平</span>
+<div class="h-2 w-full bg-surface-variant rounded-full">
+<div class="h-full bg-primary rounded-full w-[72%]"></div>
+</div>
+<div class="flex justify-between text-[10px] font-mono text-outline">
+<span>最佳状态</span>
+<span>72%</span>
+</div>
+</div>
+<!-- Mini Stats -->
+<div class="grid grid-cols-2 gap-4">
+<div class="clean-panel p-4 rounded-xl text-center">
+<span class="text-[10px] font-bold text-tertiary uppercase tracking-wider mb-1 block">风险分值</span>
+<div class="text-[20px] font-bold text-on-surface">24</div>
+</div>
+<div class="clean-panel p-4 rounded-xl text-center">
+<span class="text-[10px] font-bold text-secondary uppercase tracking-wider mb-1 block">机会</span>
+<div class="text-[20px] font-bold text-on-surface">92</div>
+</div>
+</div>
+<div class="clean-panel p-4 rounded-xl flex items-center justify-between">
+<span class="text-[12px] text-on-surface-variant font-medium">环境稳定性</span>
+<div class="flex items-center gap-2">
+<div class="w-2 h-2 rounded-full bg-secondary"></div>
+<span class="text-[12px] font-medium text-secondary">正常稳定</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Event Stream -->
+<div class="w-1/2 h-full bg-surface p-6 overflow-y-auto no-scrollbar">
+<h2 class="text-[11px] font-bold text-on-surface-variant uppercase tracking-widest mb-8">概率流</h2>
+<div class="space-y-8 relative border-l border-outline-variant/50 ml-2 pl-6">
+<!-- Event 1 -->
+<div class="relative">
+<div class="absolute -left-[31px] top-1.5 w-3 h-3 rounded-full bg-secondary border-4 border-surface"></div>
+<div class="space-y-1">
+<div class="flex items-center justify-between">
+<span class="bg-secondary/10 text-secondary text-[10px] font-bold px-2 py-0.5 rounded">成功</span>
+<span class="text-[10px] font-mono text-outline">T + 0.4s</span>
+</div>
+<h4 class="text-[14px] font-bold text-on-surface">B轮融资成功</h4>
+<p class="text-[13px] text-on-surface-variant">风险投资注入在 42% 的时间线中得到确认。</p>
+<div class="text-[10px] font-mono text-secondary font-bold">概率：88.4%</div>
+</div>
+</div>
+<!-- Event 2 -->
+<div class="relative">
+<div class="absolute -left-[31px] top-1.5 w-3 h-3 rounded-full bg-primary border-4 border-surface"></div>
+<div class="space-y-1">
+<div class="flex items-center justify-between">
+<span class="bg-primary/10 text-primary text-[10px] font-bold px-2 py-0.5 rounded">政策</span>
+<span class="text-[10px] font-mono text-outline">T + 1.2s</span>
+</div>
+<h4 class="text-[14px] font-bold text-on-surface">监管框架转变</h4>
+<p class="text-[13px] text-on-surface-variant">主要市场颁布了新的 AI 合规法律。</p>
+<div class="text-[10px] font-mono text-primary font-bold">概率：62.1%</div>
+</div>
+</div>
+<!-- Event 3 -->
+<div class="relative">
+<div class="absolute -left-[31px] top-1.5 w-3 h-3 rounded-full bg-error border-4 border-surface"></div>
+<div class="space-y-1">
+<div class="flex items-center justify-between">
+<span class="bg-error/10 text-error text-[10px] font-bold px-2 py-0.5 rounded">紧急</span>
+<span class="text-[10px] font-mono text-outline">T + 2.8s</span>
+</div>
+<h4 class="text-[14px] font-bold text-on-surface">竞争对手激进收购</h4>
+<p class="text-[13px] text-on-surface-variant">Acme Corp 在 12% 的分支中发起恶意收购。</p>
+<div class="text-[10px] font-mono text-error font-bold">概率：14.8%</div>
+</div>
+</div>
+</div>
+<div class="mt-8 flex justify-center py-4">
+<div class="flex gap-1.5">
+<div class="w-1.5 h-1.5 rounded-full bg-outline-variant animate-bounce" style="animation-delay: 0s"></div>
+<div class="w-1.5 h-1.5 rounded-full bg-outline-variant animate-bounce" style="animation-delay: 0.2s"></div>
+<div class="w-1.5 h-1.5 rounded-full bg-outline-variant animate-bounce" style="animation-delay: 0.4s"></div>
+</div>
+</div>
+</div>
+</aside>
+<script>
+    document.addEventListener('DOMContentLoaded', () => {
+        const stats = document.querySelectorAll('.font-bold.text-on-surface');
+        setInterval(() => {
+            stats.forEach(stat => {
+                if (stat.innerText.includes('.') && Math.random() > 0.8) {
+                    const isPercent = stat.innerHTML.includes('%');
+                    const text = stat.innerText.replace('%', '');
+                    const val = parseFloat(text);
+                    if (!isNaN(val)) {
+                        const change = (Math.random() - 0.5) * 0.1;
+                        stat.innerHTML = (val + change).toFixed(1) + (isPercent ? '<span class="text-[14px] text-on-surface-variant font-normal">%</span>' : '');
+                    }
+                }
+            });
+        }, 3000);
+    });
+</script>
+</body></html>
