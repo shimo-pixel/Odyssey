@@ -1,10 +1,4 @@
-export const PERIOD_TIME_UNITS = {
-  day: { label: '天', plural: '天' },
-  week: { label: '周', plural: '周' },
-  month: { label: '月', plural: '月' },
-  quarter: { label: '季度', plural: '季度' },
-  year: { label: '年', plural: '年' },
-};
+import { t, unitLabel, unitPlural } from './i18n.js';
 
 function parseDate(iso) {
   if (!iso) return null;
@@ -50,7 +44,8 @@ export function formatPeriodLabel(period, cfg = {}) {
   const unit = cfg.period_time_unit || 'month';
   const length = Number(cfg.period_time_length) || 1;
   const startDate = cfg.simulation_start_date || null;
-  const meta = PERIOD_TIME_UNITS[unit] || PERIOD_TIME_UNITS.month;
+  const label = unitLabel(unit);
+  const plural = unitPlural(unit);
 
   if (startDate) {
     const start = parseDate(startDate);
@@ -63,10 +58,12 @@ export function formatPeriodLabel(period, cfg = {}) {
     }
   }
 
-  if (length === 1) return `第${period}${meta.label} · T${period}`;
+  if (length === 1) {
+    return `${t('unit.periodNth', { n: period, unit: label })} · T${period}`;
+  }
   const startIdx = (period - 1) * length + 1;
   const endIdx = period * length;
-  return `第${startIdx}-${endIdx}${meta.plural} · T${period}`;
+  return `${t('unit.periodRange', { start: startIdx, end: endIdx, unit: plural })} · T${period}`;
 }
 
 export function formatPeriodShort(period, cfg = {}) {
@@ -92,7 +89,6 @@ export function timeConfigFrom(source = {}) {
 }
 
 export function unitLengthLabel(unit, length) {
-  const meta = PERIOD_TIME_UNITS[unit] || PERIOD_TIME_UNITS.month;
-  if (length === 1) return `每周期 1 ${meta.label}`;
-  return `每周期 ${length} ${meta.plural}`;
+  const u = length === 1 ? unitLabel(unit) : unitPlural(unit);
+  return t('unit.perPeriod', { n: length, unit: u });
 }

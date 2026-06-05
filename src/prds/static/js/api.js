@@ -1,3 +1,5 @@
+import { t } from './i18n.js';
+
 export const API = {
   async health() {
     const r = await fetch('/health');
@@ -129,59 +131,56 @@ export function buildPayload(form) {
   };
 }
 
-export const ACTION_LABELS = {
-  hire: '招聘',
-  layoff: '裁员',
-  fundraise: '融资',
-  product_dev: '产品开发',
-  marketing: '市场推广',
-  strategic_pivot: '战略转型',
-  partnership: '合作',
-  acquisition: '并购',
-  cost_cut: '削减成本',
-  hold: '观望',
-};
+const ACTION_KEYS = [
+  'hire', 'layoff', 'fundraise', 'product_dev', 'marketing',
+  'strategic_pivot', 'partnership', 'acquisition', 'cost_cut', 'hold',
+];
 
 export function actionLabel(action) {
-  if (!action) return '—';
+  if (!action) return t('common.none');
   const key = typeof action === 'string' ? action : action.value || action;
-  return ACTION_LABELS[key] || key;
+  return t(`action.${key}`, {}) !== `action.${key}` ? t(`action.${key}`) : key;
 }
 
-export const PHASE_LABELS = {
-  pending: '等待中',
-  ontology: '本体建模',
-  world_init: '世界初始化',
-  agent_spawn: '智能体生成',
-  simulation: '决策推演',
-  scoring: '评分排名',
-  trajectory: '轨迹生成',
-  counterfactual: '反事实分析',
-  synthesis: '策略提炼',
-  completed: '已完成',
-  failed: '失败',
-};
+export function getActionLabels() {
+  return Object.fromEntries(ACTION_KEYS.map(k => [k, t(`action.${k}`)]));
+}
 
-export const STATUS_LABELS = {
-  pending: '等待中',
-  running: '运行中',
-  paused: '已暂停',
-  completed: '已完成',
-  failed: '失败',
-};
+export function phaseLabel(phase) {
+  return t(`phase.${phase}`, {}) !== `phase.${phase}` ? t(`phase.${phase}`) : phase;
+}
 
-export const EVENT_CATEGORIES = {
-  macro: '宏观环境',
-  market: '市场',
-  org: '组织',
-  resource: '资源',
-};
+export function statusLabel(status) {
+  return t(`status.${status}`, {}) !== `status.${status}` ? t(`status.${status}`) : status;
+}
 
-export const PHASE_STEPS = [
-  { key: 'ontology', label: '现状分析' },
-  { key: 'world_init', label: '目标定义' },
-  { key: 'ontology', label: '本体建模' },
-  { key: 'world_init', label: '知识图谱' },
-  { key: 'agent_spawn', label: '平行世界生成' },
-  { key: 'synthesis', label: '路径收敛' },
-];
+export function eventCategoryLabel(cat) {
+  return t(`event.${cat}`, {}) !== `event.${cat}` ? t(`event.${cat}`) : cat;
+}
+
+export function getEventCategories() {
+  return {
+    macro: t('event.macro'),
+    market: t('event.market'),
+    org: t('event.org'),
+    resource: t('event.resource'),
+  };
+}
+
+export function getPhaseSteps() {
+  return [
+    { key: 'ontology', labelKey: 'phaseStep.analysis' },
+    { key: 'world_init', labelKey: 'phaseStep.goal' },
+    { key: 'ontology', labelKey: 'phaseStep.ontology' },
+    { key: 'world_init', labelKey: 'phaseStep.knowledge' },
+    { key: 'agent_spawn', labelKey: 'phaseStep.spawn' },
+    { key: 'synthesis', labelKey: 'phaseStep.converge' },
+  ].map(s => ({ ...s, label: t(s.labelKey) }));
+}
+
+// Legacy exports for compatibility
+export const PHASE_LABELS = new Proxy({}, { get: (_, k) => phaseLabel(k) });
+export const STATUS_LABELS = new Proxy({}, { get: (_, k) => statusLabel(k) });
+export const EVENT_CATEGORIES = new Proxy({}, { get: (_, k) => eventCategoryLabel(k) });
+export const ACTION_LABELS = new Proxy({}, { get: (_, k) => actionLabel(k) });
+export const PHASE_STEPS = getPhaseSteps();

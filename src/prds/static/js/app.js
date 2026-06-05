@@ -1,4 +1,6 @@
-import { initHealthBadge } from './layout.js';
+import { initHealthBadge, syncSidebarControls } from './layout.js';
+import { initAppearance, toggleLocale, toggleTheme } from './theme.js';
+import { setDocumentTitle } from './i18n.js';
 import { renderSimulate, mountSimulate } from './pages/simulate.js';
 import { renderMonitor, mountMonitor, unmountMonitor } from './pages/monitor.js';
 import { renderResults, mountResults } from './pages/results.js';
@@ -49,10 +51,38 @@ async function render() {
       break;
   }
   await initHealthBadge();
+  setDocumentTitle();
+  syncSidebarControls();
+}
+
+function setupGlobalControls() {
+  document.body.addEventListener('click', (e) => {
+    if (e.target.closest('#sb-locale-btn')) {
+      e.preventDefault();
+      toggleLocale();
+      return;
+    }
+    if (e.target.closest('#sb-theme-btn')) {
+      e.preventDefault();
+      toggleTheme();
+    }
+  });
+
+  window.addEventListener('prds:prefs-changed', (e) => {
+    if (e.detail?.themeOnly) {
+      syncSidebarControls();
+      return;
+    }
+    render();
+  });
+}
+
+async function boot() {
+  initAppearance();
+  setupGlobalControls();
+  if (!location.hash) location.hash = '#simulate';
+  else await render();
 }
 
 window.addEventListener('hashchange', render);
-document.addEventListener('DOMContentLoaded', () => {
-  if (!location.hash) location.hash = '#simulate';
-  else render();
-});
+document.addEventListener('DOMContentLoaded', boot);

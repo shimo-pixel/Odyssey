@@ -4,48 +4,66 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Odyssey | 平行现实决策模拟器</title>
+  <script>
+    (function () {
+      try {
+        var prefs = JSON.parse(localStorage.getItem('prds_prefs') || '{}');
+        if (prefs.theme === 'dark') {
+          document.documentElement.classList.remove('light');
+          document.documentElement.classList.add('dark');
+        }
+        document.documentElement.lang = prefs.locale === 'en' ? 'en' : 'zh-CN';
+      } catch (_) {}
+    })();
+  </script>
   <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
-  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@100..900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&family=Roboto+Mono:wght@400;500&display=swap" rel="stylesheet" />
   <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/static/css/theme.css" />
+  <link rel="stylesheet" href="/static/css/theme.css?v=20260605c" />
   <script>
     tailwind.config = {
+      darkMode: 'class',
       theme: {
         extend: {
           colors: {
-            primary: '#4648d4',
+            primary: 'var(--g-blue)',
             'on-primary': '#ffffff',
-            'primary-fixed': '#e1e0ff',
-            'primary-fixed-dim': '#c0c1ff',
-            'primary-container': '#6063ee',
-            secondary: '#006c49',
-            'secondary-container': '#6cf8bb',
-            'on-secondary-container': '#00714d',
-            tertiary: '#825100',
-            'tertiary-fixed': '#ffddb8',
-            error: '#ba1a1a',
-            background: '#fcf8fb',
-            surface: '#fcf8fb',
-            'surface-bright': '#fcf8fb',
-            'surface-container': '#f0edf0',
-            'surface-container-low': '#f6f2f5',
-            'surface-container-lowest': '#ffffff',
-            'surface-container-high': '#eae7ea',
-            'surface-container-highest': '#e5e1e4',
-            'surface-variant': '#e5e1e4',
-            'on-surface': '#1c1b1d',
-            'on-surface-variant': '#464554',
-            'on-background': '#1c1b1d',
-            outline: '#767586',
-            'outline-variant': '#c7c4d7',
+            'primary-fixed': 'var(--g-blue-light)',
+            'primary-fixed-dim': 'var(--g-blue-light)',
+            'primary-container': 'var(--g-blue)',
+            secondary: 'var(--g-green)',
+            'secondary-container': 'var(--g-green-light)',
+            'on-secondary-container': 'var(--g-green)',
+            tertiary: 'var(--g-orange)',
+            'tertiary-fixed': 'var(--g-orange-light)',
+            error: 'var(--g-red)',
+            background: 'var(--md-background)',
+            surface: 'var(--md-surface)',
+            'surface-bright': 'var(--md-surface-bright)',
+            'surface-container': 'var(--md-surface-container)',
+            'surface-container-low': 'var(--md-surface-container-low)',
+            'surface-container-lowest': 'var(--md-surface-container-lowest)',
+            'surface-container-high': 'var(--md-surface-container-high)',
+            'surface-container-highest': 'var(--md-surface-container-highest)',
+            'surface-variant': 'var(--md-surface-variant)',
+            'on-surface': 'var(--md-on-surface)',
+            'on-surface-variant': 'var(--md-on-surface-variant)',
+            'on-background': 'var(--md-on-background)',
+            outline: 'var(--md-outline)',
+            'outline-variant': 'var(--md-outline-variant)',
           },
           fontFamily: {
-            sans: ['Geist', 'system-ui', 'sans-serif'],
-            mono: ['JetBrains Mono', 'monospace'],
+            sans: ['Roboto', 'Google Sans', 'system-ui', 'sans-serif'],
+            mono: ['Roboto Mono', 'monospace'],
           },
-          spacing: {
-            'margin-desktop': '48px',
-            gutter: '24px',
+          borderRadius: {
+            DEFAULT: '8px',
+            lg: '12px',
+            xl: '16px',
+          },
+          boxShadow: {
+            card: 'var(--shadow-card)',
+            sm: 'var(--shadow-sm)',
           },
         },
       },
@@ -54,6 +72,6 @@
 </head>
 <body class="bg-background text-on-surface font-sans antialiased">
   <div id="app"></div>
-  <script type="module" src="/static/js/app.js"></script>
+  <script type="module" src="/static/js/app.js?v=20260605a"></script>
 </body>
 </html>

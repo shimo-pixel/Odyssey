@@ -1,5 +1,6 @@
 import { API, actionLabel } from '../api.js';
 import { pageShell } from '../layout.js';
+import { t } from '../i18n.js';
 import { formatPeriodLabel, formatPeriodShort, timeConfigFrom, unitLengthLabel } from '../time.js';
 
 const PATH_FETCH_LIMIT = 25;
@@ -9,10 +10,10 @@ export function renderResults(simId) {
   return pageShell(`
     <div class="p-6 lg:p-10 max-w-[1400px] mx-auto" id="results-root">
       <div class="flex items-center justify-center py-24">
-        <div class="animate-pulse text-primary font-bold">加载决策数据…</div>
+        <div class="animate-pulse text-primary font-bold">${t('results.loading')}</div>
       </div>
     </div>
-  `, { topNav: 'simulate', sidebarActive: 'results', simId });
+  `, { sidebarActive: 'results', simId });
 }
 
 export async function mountResults(simId) {
@@ -40,9 +41,9 @@ export async function mountResults(simId) {
     root.innerHTML = buildResultsHTML(result, paths, periodComparisons, eventItems, timeConfig);
     mountInteractions(eventItems, periodComparisons, result.champion_agent_id, timeConfig);
   } catch (e) {
-    root.innerHTML = `<div class="glass-panel p-8 text-center"><p class="text-error font-bold">无法加载结果</p>
+    root.innerHTML = `<div class="glass-panel p-8 text-center"><p class="text-error font-bold">${t('results.loadFailed')}</p>
       <p class="text-sm text-on-surface-variant mt-2">${escapeHtml(e.message)}</p>
-      <a href="#monitor/${simId}" class="inline-block mt-4 text-primary font-bold">返回监控</a></div>`;
+      <a href="#monitor/${simId}" class="inline-block mt-4 text-primary font-bold">${t('common.backMonitor')}</a></div>`;
   }
 }
 
@@ -120,21 +121,21 @@ function buildResultsHTML(r, paths, periodComparisons, eventItems, timeConfig) {
 
   return `
     <header class="mb-8">
-      <span class="text-xs text-primary font-bold uppercase tracking-widest">平行世界决策推演</span>
-      <h1 class="text-2xl lg:text-3xl font-bold mt-2 text-on-surface">决策矩阵</h1>
+      <span class="text-xs text-primary font-bold uppercase tracking-widest">${t('results.tag')}</span>
+      <h1 class="text-2xl lg:text-3xl font-bold mt-2 text-on-surface">${t('results.title')}</h1>
       <p class="text-sm text-on-surface-variant mt-2 max-w-2xl">
-        左侧列出推演过程中发生的每个事件；选中后在右侧查看 ${totalAgents || r.agent_count} 个平行智能体各自的应对方式与结果。
+        ${t('results.desc', { n: totalAgents || r.agent_count })}
       </p>
       <div class="flex flex-wrap gap-4 mt-4">
-        <statChip label="平行智能体" value="${r.agent_count}" />
-        <statChip label="推演步数" value="${r.periods_simulated}" />
-        <statChip label="周期粒度" value="${unitLengthLabel(timeConfig.period_time_unit, timeConfig.period_time_length)}" />
-        <statChip label="事件节点" value="${eventItems.length}" />
-        <statChip label="最优路径" value="#${paths.find(p => p.agent_id === championId)?.rank || 1}" highlight />
+        <statChip label="${t('results.stat.agents')}" value="${r.agent_count}" />
+        <statChip label="${t('results.stat.steps')}" value="${r.periods_simulated}" />
+        <statChip label="${t('results.stat.granularity')}" value="${unitLengthLabel(timeConfig.period_time_unit, timeConfig.period_time_length)}" />
+        <statChip label="${t('results.stat.events')}" value="${eventItems.length}" />
+        <statChip label="${t('results.stat.best')}" value="#${paths.find(p => p.agent_id === championId)?.rank || 1}" highlight />
       </div>
       ${totalAgents > 1 ? '' : `
         <p class="text-xs text-tertiary mt-3 bg-tertiary/10 border border-tertiary/20 rounded-lg px-3 py-2 inline-block">
-          当前结果缺少多智能体数据。请重新运行推演，或确认服务端已重启至最新版本。
+          ${t('results.multiAgentWarn')}
         </p>`}
     </header>
 
@@ -142,9 +143,9 @@ function buildResultsHTML(r, paths, periodComparisons, eventItems, timeConfig) {
       <div class="flex items-center justify-between mb-4">
         <h2 class="text-lg font-bold flex items-center gap-2">
           <span class="material-symbols-outlined text-primary">table_chart</span>
-          概览矩阵
+          ${t('results.overview')}
         </h2>
-        <span class="text-xs text-on-surface-variant">行 = 周期 · 列 = 排名前 ${Math.min(paths.length, MATRIX_COL_LIMIT)} 的智能体动作</span>
+        <span class="text-xs text-on-surface-variant">${t('results.overviewHint', { n: Math.min(paths.length, MATRIX_COL_LIMIT) })}</span>
       </div>
       <div class="glass-panel bg-white overflow-x-auto rounded-xl">
         ${buildDecisionMatrix(paths, periods, championId, periodComparisons, timeConfig)}
@@ -156,24 +157,24 @@ function buildResultsHTML(r, paths, periodComparisons, eventItems, timeConfig) {
         <div class="flex items-center justify-between mb-4">
           <h2 class="text-lg font-bold flex items-center gap-2">
             <span class="material-symbols-outlined text-tertiary">bolt</span>
-            事件列表
+            ${t('results.eventList')}
           </h2>
-          <span class="text-[10px] font-bold text-on-surface-variant">${eventItems.length} 个</span>
+          <span class="text-[10px] font-bold text-on-surface-variant">${t('results.eventCount', { n: eventItems.length })}</span>
         </div>
         <div id="event-list" class="space-y-2 max-h-[620px] overflow-y-auto custom-scrollbar pr-1">
           ${eventItems.length
             ? eventItems.map(item => eventListItem(item, timeConfig)).join('')
-            : '<p class="text-sm text-on-surface-variant p-4">暂无事件数据</p>'}
+            : `<p class="text-sm text-on-surface-variant p-4">${t('results.noEvents')}</p>`}
         </div>
       </div>
       <div class="lg:col-span-8 xl:col-span-9">
         <h2 class="text-lg font-bold mb-4 flex items-center gap-2">
           <span class="material-symbols-outlined text-primary">groups</span>
-          智能体应对详情
+          ${t('results.agentDetail')}
         </h2>
-        <div id="event-detail-header" class="glass-panel bg-white px-5 py-4 mb-4 rounded-xl hidden"></div>
+        <div id="event-detail-header" class="glass-panel px-5 py-4 mb-4 rounded-xl hidden"></div>
         <div id="event-detail" class="space-y-3 max-h-[640px] overflow-y-auto custom-scrollbar pr-1">
-          <p class="text-sm text-on-surface-variant glass-panel bg-white p-6 rounded-xl">← 从左侧选择一个事件，查看各智能体的应对与后果</p>
+          <p class="text-sm text-on-surface-variant glass-panel p-6 rounded-xl">${t('results.selectEvent')}</p>
         </div>
       </div>
     </section>
@@ -181,17 +182,17 @@ function buildResultsHTML(r, paths, periodComparisons, eventItems, timeConfig) {
     <section class="mb-10">
       <h2 class="text-lg font-bold mb-4 flex items-center gap-2">
         <span class="material-symbols-outlined text-tertiary">alt_route</span>
-        关键节点反事实
+        ${t('results.counterfactual')}
       </h2>
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        ${(r.counterfactuals || []).map(cf => counterfactualCard(cf)).join('') || '<p class="text-on-surface-variant text-sm">暂无</p>'}
+        ${(r.counterfactuals || []).map(cf => counterfactualCard(cf)).join('') || `<p class="text-on-surface-variant text-sm">${t('results.noCounterfactual')}</p>`}
       </div>
     </section>
 
     <section class="mb-10">
       <h2 class="text-lg font-bold mb-2 flex items-center gap-2">
         <span class="material-symbols-outlined text-primary">map</span>
-        收敛路线图
+        ${t('results.roadmap')}
       </h2>
       <p class="text-xs text-on-surface-variant mb-4">${escapeHtml(r.synthesis?.disclaimer || '')}</p>
       <div class="space-y-2">
@@ -216,9 +217,9 @@ function formatEventType(type) {
 }
 
 function impactLabel(impact) {
-  if (impact >= 0.3) return { text: '有利', cls: 'text-secondary' };
-  if (impact <= -0.3) return { text: '不利', cls: 'text-error' };
-  return { text: '中性', cls: 'text-on-surface-variant' };
+  if (impact >= 0.3) return { text: t('common.positive'), cls: 'text-secondary' };
+  if (impact <= -0.3) return { text: t('common.negative'), cls: 'text-error' };
+  return { text: t('common.neutral'), cls: 'text-on-surface-variant' };
 }
 
 function eventListItem(item, timeConfig) {
@@ -235,7 +236,7 @@ function eventListItem(item, timeConfig) {
       </div>
       <p class="text-sm font-bold text-on-surface leading-snug">${escapeHtml(ev.description || formatEventType(ev.event_type))}</p>
       <p class="text-[10px] text-on-surface-variant font-mono mt-1">${escapeHtml(ev.event_type)}</p>
-      <p class="text-[11px] text-on-surface-variant mt-2">${agentCount} 个智能体应对</p>
+      <p class="text-[11px] text-on-surface-variant mt-2">${t('results.agentsRespond', { n: agentCount })}</p>
     </button>`;
 }
 
@@ -249,29 +250,29 @@ function renderEventHeader(item, timeConfig) {
       <div class="flex flex-wrap items-center gap-2 mb-2">
         <span class="font-mono font-bold text-primary">${label}</span>
         <span class="text-xs font-bold ${impact.cls}">${impact.text}</span>
-        <span class="text-xs text-on-surface-variant">${period.agents?.length || 0} 个智能体</span>
+        <span class="text-xs text-on-surface-variant">${t('results.agentsRespond', { n: period.agents?.length || 0 })}</span>
       </div>
       <h3 class="font-bold text-lg text-on-surface">${escapeHtml(ev.description || formatEventType(ev.event_type))}</h3>
       <p class="text-xs font-mono text-on-surface-variant mt-1">${escapeHtml(ev.event_type)}</p>
     </div>
     <div class="mt-4 text-xs bg-surface-container-low rounded-lg p-3">
-      <span class="font-bold text-on-surface block mb-1">世界条件</span>
-      <p class="text-on-surface-variant leading-relaxed">${escapeHtml(period.world_summary || '—')}</p>
+      <span class="font-bold text-on-surface block mb-1">${t('results.worldConditions')}</span>
+      <p class="text-on-surface-variant leading-relaxed">${escapeHtml(period.world_summary || t('common.none'))}</p>
       ${(period.events || []).length > 1 ? `
-        <p class="text-on-surface-variant mt-2">同周期其他事件：${escapeHtml(period.events.filter(t => t !== ev.event_type).join('、') || '—')}</p>` : ''}
+        <p class="text-on-surface-variant mt-2">${t('results.otherEvents', { events: escapeHtml(period.events.filter(evt => evt !== ev.event_type).join(', ') || t('common.none')) })}</p>` : ''}
     </div>`;
 }
 
 function renderAgentResponses(period, championId) {
   const agents = period.agents || [];
   if (!agents.length) {
-    return '<p class="text-sm text-on-surface-variant glass-panel bg-white p-6 rounded-xl">该事件暂无智能体应对数据</p>';
+    return `<p class="text-sm text-on-surface-variant glass-panel p-6 rounded-xl">${t('results.noAgentData')}</p>`;
   }
 
   const header = `
     <div class="flex items-center justify-between glass-panel bg-white px-4 py-3 rounded-xl mb-1 sticky top-0 z-10">
-      <span class="text-sm font-bold text-on-surface">共 ${agents.length} 个智能体应对</span>
-      <span class="text-[10px] text-on-surface-variant">各路径在相同事件下的不同选择与后果</span>
+      <span class="text-sm font-bold text-on-surface">${t('results.agentCount', { n: agents.length })}</span>
+      <span class="text-[10px] text-on-surface-variant">${t('results.agentHint')}</span>
     </div>`;
 
   const cards = agents.map(agent => {
@@ -282,20 +283,20 @@ function renderAgentResponses(period, championId) {
         <div class="flex flex-wrap items-start justify-between gap-2 mb-3">
           <div class="flex items-center gap-2 flex-wrap">
             ${agent.rank ? `<span class="font-mono text-xs font-bold ${isChampion ? 'text-primary' : 'text-on-surface'}">#${agent.rank}</span>` : ''}
-            ${isChampion ? '<span class="text-[9px] font-bold text-primary bg-primary/10 px-1.5 py-0.5 rounded-full">最优</span>' : ''}
+            ${isChampion ? `<span class="text-[9px] font-bold text-primary bg-primary/10 px-1.5 py-0.5 rounded-full">${t('common.champion')}</span>` : ''}
             <span class="text-[10px] font-mono text-on-surface-variant">${agent.agent_id.slice(0, 16)}…</span>
           </div>
           <span class="action-chip ${ok ? 'action-chip-ok' : 'action-chip-fail'}">${actionLabel(agent.action)}</span>
         </div>
         <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
           <div class="bg-surface-container-low/80 rounded-lg p-3">
-            <span class="text-[10px] font-bold uppercase text-on-surface-variant tracking-wider">应对方式</span>
+            <span class="text-[10px] font-bold uppercase text-on-surface-variant tracking-wider">${t('results.response')}</span>
             <p class="text-on-surface font-medium mt-1 leading-snug">${escapeHtml(agent.decision || '—')}</p>
             ${agent.reasoning ? `<p class="text-xs text-on-surface-variant mt-2 leading-relaxed">${escapeHtml(agent.reasoning)}</p>` : ''}
           </div>
           <div class="rounded-lg p-3 ${ok ? 'bg-secondary/5 border border-secondary/15' : 'bg-error/5 border border-error/15'}">
-            <span class="text-[10px] font-bold uppercase ${ok ? 'text-secondary' : 'text-error'} tracking-wider">结果</span>
-            <p class="text-xs ${ok ? 'text-secondary' : 'text-error'} mt-1 leading-relaxed font-medium">${escapeHtml(agent.outcome || (ok ? '执行完成' : '执行失败'))}</p>
+            <span class="text-[10px] font-bold uppercase ${ok ? 'text-secondary' : 'text-error'} tracking-wider">${t('results.outcome')}</span>
+            <p class="text-xs ${ok ? 'text-secondary' : 'text-error'} mt-1 leading-relaxed font-medium">${escapeHtml(agent.outcome || (ok ? t('common.success') : t('common.failed')))}</p>
           </div>
         </div>
       </article>`;
@@ -310,18 +311,18 @@ function buildDecisionMatrix(paths, periods, championId, periodComparisons, time
     : Math.max(periodComparisons.length, maxPeriods(paths));
 
   if (!paths.length && !periodComparisons.length) {
-    return '<p class="p-6 text-sm text-on-surface-variant">暂无决策数据，请重新运行推演。</p>';
+    return `<p class="p-6 text-sm text-on-surface-variant">${t('results.noData')}</p>`;
   }
 
   const cols = paths.slice(0, MATRIX_COL_LIMIT);
   const header = `
     <thead><tr class="border-b border-outline-variant bg-surface-container-low">
-      <th class="decision-matrix-cell sticky left-0 bg-surface-container-low z-10 text-left font-bold text-xs uppercase text-on-surface-variant">时间节点</th>
-      <th class="decision-matrix-cell text-left text-xs uppercase text-on-surface-variant min-w-[180px]">事件</th>
+      <th class="decision-matrix-cell sticky left-0 bg-surface-container-low z-10 text-left font-bold text-xs uppercase text-on-surface-variant">${t('results.timeNode')}</th>
+      <th class="decision-matrix-cell text-left text-xs uppercase text-on-surface-variant min-w-[180px]">${t('results.eventCol')}</th>
       ${cols.map(p => `
         <th class="decision-matrix-cell text-center text-xs min-w-[100px] ${p.agent_id === championId ? 'bg-primary/5' : ''}">
           <span class="font-bold ${p.agent_id === championId ? 'text-primary' : ''}">#${p.rank}</span>
-          ${p.agent_id === championId ? '<span class="block text-[9px] text-primary">最优</span>' : ''}
+          ${p.agent_id === championId ? `<span class="block text-[9px] text-primary">${t('common.champion')}</span>` : ''}
         </th>`).join('')}
     </tr></thead>`;
 
@@ -390,8 +391,8 @@ function counterfactualCard(cf) {
   return `<div class="glass-panel p-5 bg-white border-l-4 border-l-primary rounded-xl">
     <span class="text-xs font-bold text-primary">T${cf.period}</span>
     <div class="mt-3 grid grid-cols-2 gap-4 text-sm">
-      <div><p class="text-[10px] uppercase text-on-surface-variant mb-1">实际选择</p><p class="font-medium">${escapeHtml(cf.decision_a)}</p><p class="text-xs text-on-surface-variant mt-1">${escapeHtml(cf.outcome_a)}</p></div>
-      <div><p class="text-[10px] uppercase text-on-surface-variant mb-1">备选选择</p><p class="font-medium">${escapeHtml(cf.decision_b)}</p><p class="text-xs text-on-surface-variant mt-1">${escapeHtml(cf.outcome_b)}</p></div>
+      <div><p class="text-[10px] uppercase text-on-surface-variant mb-1">${t('results.actualChoice')}</p><p class="font-medium">${escapeHtml(cf.decision_a)}</p><p class="text-xs text-on-surface-variant mt-1">${escapeHtml(cf.outcome_a)}</p></div>
+      <div><p class="text-[10px] uppercase text-on-surface-variant mb-1">${t('results.altChoice')}</p><p class="font-medium">${escapeHtml(cf.decision_b)}</p><p class="text-xs text-on-surface-variant mt-1">${escapeHtml(cf.outcome_b)}</p></div>
     </div>
     <p class="text-xs text-primary font-bold mt-3 pt-3 border-t border-outline-variant">${escapeHtml(cf.difference)}</p>
   </div>`;

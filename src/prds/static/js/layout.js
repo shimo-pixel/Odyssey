@@ -1,69 +1,107 @@
-const TOP_NAV = [
-  { id: 'simulate', label: '模拟', hash: '#simulate' },
-  { id: 'model', label: '模型', hash: '#model' },
-  { id: 'settings', label: '设置', hash: '#settings' },
-];
+import { t } from './i18n.js';
+import { getPrefs } from './prefs.js';
 
-export function renderTopNav(topNavActive) {
+function sidebarFooterControls(sidebarActive) {
+  const prefs = getPrefs();
+  const locale = prefs.locale || 'zh';
+  const theme = prefs.theme || 'light';
+  const utilClass = (page) =>
+    sidebarActive === page ? 'sidebar-util-link sidebar-util-active' : 'sidebar-util-link';
+
   return `
-  <header class="fixed top-0 w-full z-50 bg-surface/90 backdrop-blur-md border-b border-outline-variant flex items-center justify-between px-6 lg:px-12 h-16">
-    <div class="flex items-center gap-10">
-      <a href="#simulate" class="font-bold text-xl tracking-tight text-primary shrink-0">Odyssey</a>
-      <nav class="hidden md:flex items-center gap-8">
-        ${TOP_NAV.map(n => `
-          <a href="${n.hash}" class="text-sm font-medium transition-colors pb-0.5 ${topNavActive === n.id ? 'nav-active text-primary' : 'text-on-surface-variant hover:text-primary'}">${n.label}</a>
-        `).join('')}
-      </nav>
-    </div>
-    <div class="flex items-center gap-3">
-      <span id="llm-badge" class="hidden text-[10px] font-bold px-2 py-0.5 rounded-full bg-secondary/10 text-secondary"></span>
-      <button type="button" class="material-symbols-outlined text-on-surface-variant hover:text-primary">notifications</button>
-      <button type="button" class="material-symbols-outlined text-on-surface-variant hover:text-primary">account_circle</button>
-    </div>
-  </header>`;
+    <div class="app-sidebar-footer">
+      <div id="llm-badge" class="sidebar-llm-badge hidden"></div>
+      <button type="button" id="sb-locale-btn" class="sidebar-util-btn" title="${t('header.toggleLocale')}" aria-label="${t('header.toggleLocale')}">
+        <span class="material-symbols-outlined">translate</span>
+        <span class="sidebar-util-label">${t('sidebar.language')}</span>
+        <span id="sb-locale-label" class="sidebar-util-meta">${locale === 'en' ? 'EN' : '中'}</span>
+      </button>
+      <button type="button" id="sb-theme-btn" class="sidebar-util-btn" title="${t('header.toggleTheme')}" aria-label="${t('header.toggleTheme')}">
+        <span class="material-symbols-outlined" id="sb-theme-icon">${theme === 'dark' ? 'light_mode' : 'dark_mode'}</span>
+        <span class="sidebar-util-label">${t('sidebar.theme')}</span>
+        <span class="sidebar-util-meta">${theme === 'dark' ? t('sidebar.themeDark') : t('sidebar.themeLight')}</span>
+      </button>
+      <a href="#model" class="${utilClass('model')}">
+        <span class="material-symbols-outlined">smart_toy</span>
+        <span class="sidebar-util-label">${t('nav.model')}</span>
+      </a>
+      <a href="#settings" class="${utilClass('settings')}">
+        <span class="material-symbols-outlined">settings</span>
+        <span class="sidebar-util-label">${t('nav.settings')}</span>
+      </a>
+    </div>`;
 }
 
 export function renderSidebar(sidebarActive, simId = null) {
   const sid = simId || localStorage.getItem('prds_last_sim');
   const links = [
-    { icon: 'account_tree', label: '新建推演', page: 'simulate' },
-    { icon: 'query_stats', label: '实时监控', page: 'monitor', needsSim: true },
-    { icon: 'table_chart', label: '决策矩阵', page: 'results', needsSim: true },
-    { icon: 'hub', label: '知识图谱', page: 'knowledge', needsSim: true },
+    { icon: 'account_tree', labelKey: 'sidebar.simulate', page: 'simulate' },
+    { icon: 'query_stats', labelKey: 'sidebar.monitor', page: 'monitor', needsSim: true },
+    { icon: 'table_chart', labelKey: 'sidebar.results', page: 'results', needsSim: true },
+    { icon: 'hub', labelKey: 'sidebar.knowledge', page: 'knowledge', needsSim: true },
   ];
   return `
-  <aside class="fixed left-0 top-16 h-[calc(100vh-64px)] w-64 bg-surface-container-low border-r border-outline-variant flex flex-col p-4 z-40">
-    <div class="px-2 py-3 mb-2">
-      <div class="text-base font-bold text-on-surface">PRDS 推演</div>
-      <div class="text-xs text-on-surface-variant">平行世界决策模拟</div>
-      ${sid ? `<div class="text-[10px] font-mono text-outline mt-1 truncate" title="${sid}">${sid.slice(0, 8)}…</div>` : ''}
+  <aside class="app-sidebar">
+    <div class="app-sidebar-brand">
+      <a href="#simulate" class="app-sidebar-logo">
+        <span class="material-symbols-outlined text-primary text-2xl">auto_awesome</span>
+        <span class="app-sidebar-logo-text">Odyssey</span>
+      </a>
     </div>
-    <nav class="flex-1 space-y-1">
+
+    <div class="app-sidebar-section">
+      <div class="text-xs text-on-surface-variant leading-snug">${t('sidebar.subtitle')}</div>
+      ${sid ? `<div class="text-[10px] font-mono text-outline mt-1.5 truncate" title="${sid}">${sid.slice(0, 8)}…</div>` : ''}
+    </div>
+
+    <nav class="app-sidebar-nav">
       ${links.map(l => {
         const href = l.needsSim && sid ? `#${l.page}/${sid}` : `#${l.page}`;
         const disabled = l.needsSim && !sid;
+        const active = sidebarActive === l.page;
         return `
         <a href="${disabled ? '#' : href}"
-           class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all ${disabled ? 'opacity-40 pointer-events-none' : sidebarActive === l.page ? 'text-primary bg-primary/10 font-bold' : 'text-on-surface-variant hover:bg-surface-container'}">
-          <span class="material-symbols-outlined text-[20px]">${l.icon}</span>${l.label}
+           class="sidebar-nav-link ${disabled ? 'sidebar-nav-disabled' : active ? 'sidebar-link-active' : 'sidebar-link-idle'}">
+          <span class="material-symbols-outlined text-[20px]">${l.icon}</span>
+          <span>${t(l.labelKey)}</span>
         </a>`;
       }).join('')}
     </nav>
+
+    ${sidebarFooterControls(sidebarActive)}
   </aside>`;
 }
 
 export function pageShell(content, opts = {}) {
   const {
-    topNav = 'simulate',
     sidebarActive = null,
     simId = null,
     noSidebar = false,
-    mainClass = 'ml-64 mt-16 min-h-screen',
+    mainClass = 'ml-60 min-h-screen',
   } = opts;
   return `
-    ${renderTopNav(topNav)}
     ${noSidebar ? '' : renderSidebar(sidebarActive, simId)}
     <main class="${mainClass}">${content}</main>`;
+}
+
+export function syncSidebarControls() {
+  const prefs = getPrefs();
+  const locale = prefs.locale || 'zh';
+  const theme = prefs.theme || 'light';
+  const localeLabel = document.getElementById('sb-locale-label');
+  const themeIcon = document.getElementById('sb-theme-icon');
+  const themeBtn = document.getElementById('sb-theme-btn');
+  if (localeLabel) localeLabel.textContent = locale === 'en' ? 'EN' : '中';
+  if (themeIcon) themeIcon.textContent = theme === 'dark' ? 'light_mode' : 'dark_mode';
+  if (themeBtn) {
+    const meta = themeBtn.querySelector('.sidebar-util-meta');
+    if (meta) meta.textContent = theme === 'dark' ? t('sidebar.themeDark') : t('sidebar.themeLight');
+  }
+}
+
+/** @deprecated use syncSidebarControls */
+export function syncHeaderControls() {
+  syncSidebarControls();
 }
 
 export async function initHealthBadge() {
@@ -72,13 +110,8 @@ export async function initHealthBadge() {
     const el = document.getElementById('llm-badge');
     if (el) {
       el.classList.remove('hidden');
-      el.textContent = h.llm_configured ? 'LLM 已连接' : 'Mock 模式';
+      el.textContent = h.llm_configured ? t('badge.llm') : t('badge.mock');
+      el.className = `sidebar-llm-badge ${h.llm_configured ? 'sidebar-llm-live' : 'sidebar-llm-mock'}`;
     }
   } catch (_) {}
-}
-
-export function topNavForPage(page) {
-  if (page === 'model') return 'model';
-  if (page === 'settings') return 'settings';
-  return 'simulate';
 }

@@ -5,6 +5,9 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
+from starlette.responses import Response
 
 from prds.api.routes.simulations import get_repo, router as simulations_router
 from prds.config import get_settings
@@ -14,6 +17,29 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 STATIC_DIR = Path(__file__).parent / "static"
+
+NO_CACHE = "no-cache, no-store, must-revalidate"
+
+
+class DevNoCacheMiddleware(BaseHTTPMiddleware):
+    """Prevent 304 stale bundles while iterating on static frontend assets."""
+
+    _SKIP = frozenset({b"if-none-match", b"if-modified-since"})
+
+    async def dispatch(self, request: Request, call_next) -> Response:
+        path = request.url.path
+        if path == "/" or path.startswith("/static/"):
+            request.scope["headers"] = [
+                (name, value)
+                for name, value in request.scope["headers"]
+                if name.lower() not in self._SKIP
+            ]
+        response = await call_next(request)
+        if path == "/" or path.startswith("/static/"):
+            response.headers["Cache-Control"] = NO_CACHE
+            response.headers["Pragma"] = "no-cache"
+            response.headers["Expires"] = "0"
+        return response
 
 
 @asynccontextmanager
@@ -32,6 +58,8 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan,
 )
+
+app.add_middleware(DevNoCacheMiddleware)
 
 app.include_router(simulations_router)
 
@@ -70,7 +98,10 @@ if STATIC_DIR.exists():
 
     @app.get("/")
     async def ui() -> FileResponse:
-        return FileResponse(STATIC_DIR / "index.html")
+        return FileResponse(
+            STATIC_DIR / "index.html",
+            headers={"Cache-Control": NO_CACHE, "Pragma": "no-cache", "Expires": "0"},
+        )
 
 
 def run() -> None:
