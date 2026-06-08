@@ -110,8 +110,8 @@ export async function initHealthBadge() {
     const el = document.getElementById('llm-badge');
     if (el) {
       el.classList.remove('hidden');
-      el.textContent = h.llm_configured ? t('badge.llm') : t('badge.mock');
-      el.className = `sidebar-llm-badge ${h.llm_configured ? 'sidebar-llm-live' : 'sidebar-llm-mock'}`;
+      el.textContent = h.llm_configured ? t('badge.llm') : t('badge.unconfigured');
+      el.className = `sidebar-llm-badge ${h.llm_configured ? 'sidebar-llm-live' : 'sidebar-llm-unconfigured'}`;
     }
   } catch (_) {}
 }

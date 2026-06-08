@@ -15,28 +15,13 @@ def _identify_key_periods(champion: AgentState) -> list[int]:
     """Heuristic: periods with large resource changes or action shifts."""
     key_periods: list[int] = []
     for entry in champion.timeline:
+        action = str(entry.action)
         delta = abs(entry.result.resource_change.cash) + abs(entry.result.resource_change.users) * 0.001
-        if delta > 5 or entry.action.value in ("fundraise", "strategic_pivot", "acquisition"):
+        if delta > 5 or action in ("fundraise", "strategic_pivot", "acquisition"):
             key_periods.append(entry.period)
     if not key_periods and champion.timeline:
         key_periods = [champion.timeline[0].period, champion.timeline[-1].period]
     return sorted(set(key_periods))[:4]
-
-
-def _fallback_counterfactuals(champion: AgentState) -> list[CounterfactualComparison]:
-    comparisons: list[CounterfactualComparison] = []
-    for entry in champion.timeline[:3]:
-        comparisons.append(
-            CounterfactualComparison(
-                period=entry.period,
-                decision_a=entry.decision,
-                outcome_a=entry.result.narrative,
-                decision_b=f"Instead of {entry.action.value}, choose hold",
-                outcome_b="Slower progress but lower risk exposure",
-                difference="Actual choice prioritized action over caution",
-            )
-        )
-    return comparisons
 
 
 async def analyze_counterfactuals(
@@ -49,7 +34,7 @@ async def analyze_counterfactuals(
         {
             "period": e.period,
             "decision": e.decision,
-            "action": e.action.value,
+            "action": str(e.action),
             "result": e.result.model_dump(),
             "world_summary": e.world_state.narrative_summary,
         }
@@ -58,7 +43,7 @@ async def analyze_counterfactuals(
     ]
 
     if not timeline_data:
-        return _fallback_counterfactuals(champion)
+        raise ValueError("Champion timeline has no key periods for counterfactual analysis")
 
     user = json.dumps(
         {"goal": goal_description, "key_periods": key_periods, "timeline": timeline_data},
@@ -66,13 +51,10 @@ async def analyze_counterfactuals(
         indent=2,
     )
 
-    try:
-        batch = await llm.structured_complete(
-            COUNTERFACTUAL_SYSTEM,
-            user,
-            CounterfactualBatch,
-            model=llm.analysis_model,
-        )
-        return batch.comparisons
-    except Exception:
-        return _fallback_counterfactuals(champion)
+    batch = await llm.structured_complete(
+        COUNTERFACTUAL_SYSTEM,
+        user,
+        CounterfactualBatch,
+        model=llm.analysis_model,
+    )
+    return batch.comparisons

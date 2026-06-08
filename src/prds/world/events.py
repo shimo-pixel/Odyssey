@@ -48,12 +48,15 @@ class EventGenerator:
         entity_hints: list[str] | None = None,
         risks: list[str] | None = None,
         opportunities: list[str] | None = None,
+        planned_by_period: dict[int, list[Event]] | None = None,
     ) -> None:
         self._rng = random.Random(seed)
         self._world_background = world_background
         self._entity_hints = entity_hints or []
         self._risks = risks or []
         self._opportunities = opportunities or []
+        self._planned_by_period = planned_by_period or {}
+        self._use_planned = bool(self._planned_by_period)
 
     def _contextual_description(
         self,
@@ -101,6 +104,11 @@ class EventGenerator:
                 )
             )
         return events
+
+    def events_for_period(self, period: int) -> list[Event]:
+        if self._use_planned:
+            return list(self._planned_by_period.get(period, []))
+        return self.generate_period_events(period)
 
     def apply_events_to_world(self, world: WorldState, events: Sequence[Event]) -> WorldState:
         env = world.environment.model_copy()

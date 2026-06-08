@@ -71,12 +71,22 @@ export function formatPeriodShort(period, cfg = {}) {
   return full.split(' · ')[0] || full;
 }
 
-export function buildTimelinePreview(cfg, periods) {
-  const count = Math.min(Number(periods) || 0, 6);
+export function buildTimelinePreview(cfg, periods, maxItems = 8) {
+  const total = Math.max(0, Number(periods) || 0);
   const items = [];
-  for (let p = 1; p <= count; p += 1) {
+  if (total <= maxItems) {
+    for (let p = 1; p <= total; p += 1) {
+      items.push({ period: p, label: formatPeriodLabel(p, cfg) });
+    }
+    return items;
+  }
+  // Condense long horizons: show the first periods, a gap marker, then the final period.
+  const head = maxItems - 2;
+  for (let p = 1; p <= head; p += 1) {
     items.push({ period: p, label: formatPeriodLabel(p, cfg) });
   }
+  items.push({ gap: true, hidden: total - head - 1 });
+  items.push({ period: total, label: formatPeriodLabel(total, cfg) });
   return items;
 }
 

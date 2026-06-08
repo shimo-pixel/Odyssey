@@ -4,10 +4,12 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
 
 from prds.api.schemas.responses import SimulationInput, SimulationProgress, SimulationResult
 from prds.config import get_settings
-from prds.llm.client import LLMClient, MockLLMClient
+from prds.intake.refine import RefinedProposal, RefineRequest, refine_user_input
+from prds.llm.client import LLMClient
 from prds.models.domain import SimulationPhase, SimulationStatus, UserEventInput
 from prds.simulation.control import get_control
 from prds.graph.neo4j_store import get_neo4j_store
+from prds.graph.graphiti_store import get_graphiti_store
 from prds.simulation.orchestrator import SimulationOrchestrator
 from prds.storage.repository import SimulationRepository
 
@@ -24,16 +26,13 @@ def get_repo() -> SimulationRepository:
     return _repo
 
 
-def get_llm_client(use_mock: bool = False) -> LLMClient:
-    settings = get_settings()
-    if use_mock or not settings.openai_api_key:
-        return MockLLMClient()
-    return LLMClient(settings)
+def get_llm_client() -> LLMClient:
+    return LLMClient(get_settings())
 
 
-async def _run_simulation(run_id: str, simulation_input: SimulationInput, use_mock: bool) -> None:
+async def _run_simulation(run_id: str, simulation_input: SimulationInput) -> None:
     repo = get_repo()
-    llm = get_llm_client(use_mock=use_mock)
+    llm = get_llm_client()
     orchestrator = SimulationOrchestrator(llm)
     total_periods = simulation_input.config.periods
 
@@ -47,6 +46,7 @@ async def _run_simulation(run_id: str, simulation_input: SimulationInput, use_mo
 
         async def on_phase(phase: SimulationPhase, extra: dict) -> None:
             base_pct = {
+                SimulationPhase.RESEARCH: 2,
                 SimulationPhase.ONTOLOGY: 5,
                 SimulationPhase.WORLD_INIT: 10,
                 SimulationPhase.AGENT_SPAWN: 15,
@@ -99,15 +99,38 @@ async def _run_simulation(run_id: str, simulation_input: SimulationInput, use_mo
         )
 
 
+@router.post("/refine", response_model=RefinedProposal)
+async def refine_simulation_input(req: RefineRequest) -> RefinedProposal:
+    settings = get_settings()
+    if not settings.llm_configured:
+        raise HTTPException(
+            status_code=503,
+            detail="LLM API key is not configured. Set OPENAI_API_KEY or DEEPSEEK_API_KEY in .env.",
+        )
+    if not req.background.strip() or not req.goal.strip():
+        raise HTTPException(status_code=422, detail="background and goal are required")
+    llm = get_llm_client()
+    try:
+        return await refine_user_input(llm, req)
+    except Exception as exc:
+        logger.exception("Input refinement failed")
+        raise HTTPException(status_code=502, detail=f"Refinement failed: {exc}") from exc
+
+
 @router.post("", response_model=dict)
 async def create_simulation(
     simulation_input: SimulationInput,
     background_tasks: BackgroundTasks,
-    use_mock: bool = Query(False, description="Use mock LLM for testing without API key"),
 ) -> dict:
+    settings = get_settings()
+    if not settings.llm_configured:
+        raise HTTPException(
+            status_code=503,
+            detail="LLM API key is not configured. Set OPENAI_API_KEY or DEEPSEEK_API_KEY in .env.",
+        )
     repo = get_repo()
     run_id = await repo.create_run(simulation_input)
-    background_tasks.add_task(_run_simulation, run_id, simulation_input, use_mock)
+    background_tasks.add_task(_run_simulation, run_id, simulation_input)
     return {"simulation_id": run_id, "status": "pending"}
 
 
@@ -173,6 +196,32 @@ async def get_knowledge_graph(simulation_id: str) -> dict:
     if not progress:
         raise HTTPException(status_code=404, detail="Simulation not found")
 
+    settings = get_settings()
+
+    # Graphiti backend: read the live, episode-driven graph straight from Neo4j so
+    # the visualization reflects growth while the simulation is still running.
+    if settings.resolved_graph_backend() == "graphiti":
+        store = get_graphiti_store()
+        if store.available:
+            data = await store.get_graph_data(simulation_id)
+            if data and data.get("nodes"):
+                summary = ""
+                if progress.status == SimulationStatus.COMPLETED:
+                    result = await repo.get_result(simulation_id)
+                    if result:
+                        summary = result.world_background.summary
+                return {
+                    "simulation_id": simulation_id,
+                    "knowledge_graph": {"nodes": data["nodes"], "edges": data["edges"]},
+                    "graph_source": "graphiti",
+                    "building": progress.status != SimulationStatus.COMPLETED,
+                    "world_background": {
+                        "summary": summary,
+                        "graph_source": "graphiti",
+                        "neo4j_persisted": True,
+                    },
+                }
+
     neo4j = get_neo4j_store()
     if neo4j.available:
         loaded = await neo4j.load_simulation_graph(simulation_id)
@@ -189,6 +238,7 @@ async def get_knowledge_graph(simulation_id: str) -> dict:
         "knowledge_graph": result.knowledge_graph.model_dump(),
         "ontology": result.ontology.model_dump(),
         "world_background": result.world_background.model_dump(),
+        "graph_source": result.world_background.graph_source,
     }
 
 

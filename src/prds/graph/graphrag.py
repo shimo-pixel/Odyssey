@@ -7,6 +7,7 @@ from typing import Any
 from prds.graph.neo4j_store import Neo4jGraphStore, get_neo4j_store
 from prds.llm.client import LLMClient
 from prds.models.domain import (
+    BackgroundReport,
     CurrentState,
     KnowledgeGraphData,
     OntologyEntity,
@@ -15,7 +16,7 @@ from prds.models.domain import (
     TargetGoal,
     WorldBackground,
 )
-from prds.ontology.builder import _fallback_ontology, _parse_json_response, build_ontology
+from prds.ontology.builder import _parse_json_response, build_ontology
 from prds.ontology.knowledge_graph import KnowledgeGraph
 
 logger = logging.getLogger(__name__)
@@ -44,7 +45,20 @@ Return JSON:
 }"""
 
 
-def _compose_document(current_state: CurrentState, goal: TargetGoal) -> str:
+def compose_document(
+    current_state: CurrentState,
+    goal: TargetGoal,
+    report: BackgroundReport | None = None,
+) -> str:
+    """Public alias: assemble the seed document fed to GraphRAG / Graphiti."""
+    return _compose_document(current_state, goal, report)
+
+
+def _compose_document(
+    current_state: CurrentState,
+    goal: TargetGoal,
+    report: BackgroundReport | None = None,
+) -> str:
     parts = [
         f"## 当前现状\n{current_state.background}",
         f"## 最终目标\n{goal.description}",
@@ -55,6 +69,8 @@ def _compose_document(current_state: CurrentState, goal: TargetGoal) -> str:
         parts.append("## 风险\n" + "\n".join(f"- {r}" for r in current_state.risks))
     if current_state.opportunities:
         parts.append("## 机会\n" + "\n".join(f"- {o}" for o in current_state.opportunities))
+    if report and report.report.strip():
+        parts.append("## 行业背景研究报告\n" + report.report.strip())
     return "\n\n".join(parts)
 
 
@@ -131,7 +147,7 @@ def _merge_extractions(
                 )
 
     if len(entities) < 3:
-        return _fallback_ontology(current_state, goal)
+        raise ValueError("GraphRAG extraction produced fewer than 3 entities")
 
     return OntologyGraph(
         entities=entities,
@@ -158,18 +174,12 @@ class GraphRAGIndexer:
         self.use_graphrag = use_graphrag
 
     async def _extract_chunk(self, chunk: str) -> dict[str, Any]:
-        if not self.llm.api_key_available:
-            return {"entities": [], "relationships": []}
-        try:
-            response = await self.llm.complete(
-                system=CHUNK_EXTRACT_PROMPT,
-                user=chunk,
-                model=self.llm.analysis_model,
-            )
-            return _parse_json_response(response)
-        except Exception as exc:
-            logger.warning("GraphRAG chunk extract failed: %s", exc)
-            return {"entities": [], "relationships": []}
+        response = await self.llm.complete(
+            system=CHUNK_EXTRACT_PROMPT,
+            user=chunk,
+            model=self.llm.analysis_model,
+        )
+        return _parse_json_response(response)
 
     async def _summarize_world(
         self,
@@ -180,17 +190,6 @@ class GraphRAGIndexer:
             e.id: (e.properties.get("description") or e.name) if e.properties else e.name
             for e in ontology.entities
         }
-        if not self.llm.api_key_available:
-            summary = (
-                f"世界背景基于用户输入构建，包含 {len(ontology.entities)} 个实体与 "
-                f"{len(ontology.relations)} 条关系。关键风险：{'; '.join(ontology.risks[:3]) or '未识别'}。"
-            )
-            communities = [
-                f"市场：{'; '.join(ontology.opportunities[:2]) or '待观察'}",
-                f"组织：{len([e for e in ontology.entities if e.entity_type == 'organization'])} 个相关组织",
-                f"资源：{'; '.join(ontology.constraints[:2]) or '资源约束待评估'}",
-            ]
-            return summary, communities, entity_reports
 
         payload = {
             "entities": [e.model_dump() for e in ontology.entities[:20]],
@@ -210,26 +209,23 @@ class GraphRAGIndexer:
             summary = data.get("summary", "")
             communities = data.get("community_summaries", [])
             if not summary:
-                raise ValueError("empty summary")
+                raise ValueError("GraphRAG world summary returned empty summary")
             return summary, communities, entity_reports
         except Exception as exc:
             logger.warning("GraphRAG world summary failed: %s", exc)
-            summary = (
-                f"GraphRAG 世界模型：{len(ontology.entities)} 实体，"
-                f"目标为「{ontology.targets[0][:80] if ontology.targets else '未设定'}」。"
-            )
-            communities = ontology.risks[:3] or ontology.opportunities[:3] or ["通用决策环境"]
-            return summary, communities, entity_reports
+            raise
 
     async def index(
         self,
         simulation_id: str,
         current_state: CurrentState,
         goal: TargetGoal,
+        *,
+        report: BackgroundReport | None = None,
     ) -> tuple[OntologyGraph, KnowledgeGraphData, WorldBackground]:
-        document = _compose_document(current_state, goal)
+        document = _compose_document(current_state, goal, report)
 
-        if not self.use_graphrag or not self.llm.api_key_available:
+        if not self.use_graphrag:
             ontology = await build_ontology(self.llm, current_state, goal)
             graph_source = "ontology"
         else:
@@ -251,6 +247,9 @@ class GraphRAGIndexer:
             opportunities=list(ontology.opportunities),
             graph_source=graph_source,
             neo4j_persisted=False,
+            research_provider=report.provider if report else "off",
+            research_report=report.report if report else "",
+            research_citations=list(report.citations) if report else [],
         )
 
         if self.neo4j.available:

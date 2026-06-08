@@ -146,7 +146,11 @@ class SimulationRepository:
         run = await self.get_run(run_id)
         if not run or not run.result_json:
             return None
-        return SimulationResult.model_validate_json(run.result_json)
+        result = SimulationResult.model_validate_json(run.result_json)
+        sim_input = await self.get_input(run_id)
+        if sim_input and sim_input.config.domain_id:
+            result = result.model_copy(update={"domain_id": sim_input.config.domain_id})
+        return result
 
     async def get_input(self, run_id: str) -> SimulationInput | None:
         run = await self.get_run(run_id)
@@ -229,9 +233,10 @@ class SimulationRepository:
     async def list_agent_decisions(self, run_id: str, limit: int = 20) -> dict:
         result = await self.get_result(run_id)
         if not result:
-            return {"paths": [], "period_comparisons": [], "time_config": time_config_dict()}
+            return {"paths": [], "period_comparisons": [], "time_config": time_config_dict(), "domain_id": "startup"}
 
         time_cfg = await self._time_config_for_run(run_id, result)
+        domain_id = result.domain_id
         tc = time_cfg
 
         checkpoint_agents = self.load_latest_checkpoint_agents(run_id)
@@ -250,6 +255,7 @@ class SimulationRepository:
                     "paths": [p.model_dump() for p in paths],
                     "period_comparisons": [c.model_dump() for c in comparisons],
                     "time_config": time_cfg,
+                    "domain_id": domain_id,
                 }
 
         if result.period_comparisons and self._max_agents_in_comparisons(result.period_comparisons) > 1:
@@ -259,6 +265,7 @@ class SimulationRepository:
                 "paths": [p.model_dump() for p in paths],
                 "period_comparisons": [c.model_dump() for c in comparisons],
                 "time_config": time_cfg,
+                "domain_id": domain_id,
             }
 
         paths = result.agent_paths[:limit]
@@ -268,6 +275,7 @@ class SimulationRepository:
                 "paths": [p.model_dump() for p in paths],
                 "period_comparisons": [c.model_dump() for c in comparisons],
                 "time_config": time_cfg,
+                "domain_id": domain_id,
             }
 
         # Fallback for older runs: champion only
@@ -290,6 +298,8 @@ class SimulationRepository:
                     "reasoning": t.agent_thought,
                     "outcome": t.result.narrative if t.result else "",
                     "success": t.result.success if t.result else True,
+                    "financials": t.result.financials.model_dump() if t.result else {},
+                    "goal_status": t.goal_status.model_dump() if t.goal_status else {},
                 }
                 for t in result.champion_timeline
             ]
@@ -314,8 +324,9 @@ class SimulationRepository:
                 "paths": fallback_paths,
                 "period_comparisons": [c.model_dump() for c in comparisons],
                 "time_config": time_cfg,
+                "domain_id": domain_id,
             }
-        return {"paths": [], "period_comparisons": [], "time_config": time_cfg}
+        return {"paths": [], "period_comparisons": [], "time_config": time_cfg, "domain_id": domain_id}
 
     @staticmethod
     def _tc_kwargs(time_cfg: dict) -> dict:
@@ -358,7 +369,11 @@ class SimulationRepository:
                     "goal_achievement": score.goal_achievement,
                     "final_resources": score.final_resources.model_dump(),
                     "decision_count": len(path.steps) if path else 0,
-                    "last_action": path.steps[-1].action.value if path and path.steps else None,
+                    "last_action": (
+                        (path.steps[-1].action.value if hasattr(path.steps[-1].action, "value") else path.steps[-1].action)
+                        if path and path.steps
+                        else None
+                    ),
                 }
             )
         return agents_data

@@ -4,6 +4,7 @@ from prds.models.domain import (
     ActionType,
     AgentAttributes,
     AgentState,
+    Event,
     EventCategory,
     ResourceSnapshot,
     StrategyType,
@@ -11,8 +12,10 @@ from prds.models.domain import (
     WorldState,
 )
 from prds.analysis.scoring import score_agent
-from prds.simulation.actions import execute_action, randomize_attributes
-from prds.simulation.elimination import compute_goal_progress, should_eliminate
+from prds.llm.schemas import EventTimelinePlan
+from prds.simulation.actions import apply_result_resources, execute_action, randomize_attributes
+from prds.simulation.elimination import compute_goal_progress, compute_goal_status, should_eliminate
+from prds.world.event_planner import plan_event_timeline, plan_to_calendar
 from prds.world.events import EventGenerator
 
 
@@ -57,7 +60,7 @@ def test_apply_events_updates_world(sample_world):
     assert updated.period == sample_world.period
 
 
-def test_execute_action_product_dev(sample_agent, sample_world):
+def test_execute_action_product_dev(sample_agent, sample_world, sample_goal):
     result = execute_action(
         sample_agent,
         sample_world,
@@ -65,7 +68,21 @@ def test_execute_action_product_dev(sample_agent, sample_world):
         {"investment": 5.0},
     )
     assert result.success
-    assert result.resource_change.product_maturity >= 0
+    assert result.financials.total_expense > 0
+    assert result.financials.operating_burn > 0
+    new_resources = apply_result_resources(sample_agent, result)
+    goal_status = compute_goal_status(new_resources, sample_goal)
+    assert 0 <= goal_status.progress <= 1
+    assert goal_status.distance == pytest.approx(1 - goal_status.progress)
+
+
+def test_goal_status_metric_gaps(sample_goal):
+    resources = ResourceSnapshot(users=50_000)
+    status = compute_goal_status(resources, sample_goal)
+    assert status.metric_progress["users"] == pytest.approx(0.5)
+    assert status.metric_gaps["users"] == pytest.approx(50_000)
+    assert status.progress == pytest.approx(0.5)
+    assert status.distance == pytest.approx(0.5)
 
 
 def test_execute_action_insufficient_cash(sample_agent, sample_world):
@@ -115,3 +132,54 @@ def test_randomize_attributes_conservative():
 
 def test_strategy_types_count():
     assert len(StrategyType) == 10
+
+
+def test_events_for_period_uses_planned_calendar():
+    planned = {
+        2: [
+            Event(
+                event_id="evt_2_test",
+                event_type="policy_support",
+                category=EventCategory.MACRO,
+                impact=0.3,
+                probability=0.7,
+                severity=0.5,
+                description="测试事件",
+            )
+        ]
+    }
+    gen = EventGenerator(seed=1, planned_by_period=planned)
+    assert len(gen.events_for_period(2)) == 1
+    assert gen.events_for_period(1) == []
+
+
+def test_plan_to_calendar_clamps_period():
+    plan = EventTimelinePlan(
+        events=[
+            {
+                "period": 999,
+                "event_type": "late_event",
+                "category": "market",
+                "impact": 0.2,
+                "severity": 0.5,
+                "description": "晚期事件",
+            }
+        ]
+    )
+    calendar = plan_to_calendar(plan, total_periods=12)
+    assert 12 in calendar
+    assert 999 not in calendar
+
+
+@pytest.mark.asyncio
+async def test_plan_event_timeline(sample_goal):
+    from prds.llm.client import LLMClient
+    from prds.models.domain import CurrentState, SimulationConfig
+
+    llm = LLMClient()
+    state = CurrentState(background="AI startup in early stage")
+    config = SimulationConfig(periods=12)
+    calendar = await plan_event_timeline(llm, state, sample_goal, config)
+    assert len(calendar) >= 1
+    total_events = sum(len(v) for v in calendar.values())
+    assert total_events >= 2

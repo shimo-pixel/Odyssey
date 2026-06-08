@@ -1,6 +1,6 @@
 import pytest
 
-from prds.llm.client import MockLLMClient
+from prds.llm.client import LLMClient
 from prds.models.domain import (
     CurrentState,
     ResourceSnapshot,
@@ -12,8 +12,8 @@ from prds.simulation.orchestrator import SimulationOrchestrator
 
 
 @pytest.mark.asyncio
-async def test_full_simulation_smoke_mock_llm():
-    llm = MockLLMClient()
+async def test_full_simulation_smoke():
+    llm = LLMClient()
     orchestrator = SimulationOrchestrator(llm)
 
     simulation_input = SimulationInput(

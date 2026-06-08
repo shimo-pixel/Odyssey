@@ -5,27 +5,34 @@ import re
 from typing import Any, TypeVar
 
 import litellm
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from prds.agents.prompts import build_agent_system_prompt
 from prds.config import Settings, get_settings
-from prds.llm.mock_decisions import build_mock_decision
-from prds.models.domain import AgentDecision, AgentState, WorldState
+from prds.llm.model_config import configure_litellm, normalize_litellm_model
+from prds.models.domain import AgentDecision, AgentState, TargetGoal, WorldState
 
 logger = logging.getLogger(__name__)
 T = TypeVar("T", bound=BaseModel)
 
 
+class LLMStructuredOutputError(ValueError):
+    """Raised when an LLM response cannot be parsed into the expected schema."""
+
+
 class LLMClient:
     def __init__(self, settings: Settings | None = None) -> None:
         self.settings = settings or get_settings()
+        if not self.settings.llm_configured:
+            raise RuntimeError(
+                "LLM API key is not configured. Set OPENAI_API_KEY or DEEPSEEK_API_KEY in .env."
+            )
         self._semaphore = asyncio.Semaphore(self.settings.prds_max_concurrent_llm)
-        if self.settings.openai_api_key:
-            litellm.api_key = self.settings.openai_api_key
+        configure_litellm(self.settings)
 
     @property
     def api_key_available(self) -> bool:
-        return bool(self.settings.openai_api_key)
+        return self.settings.llm_configured
 
     @property
     def default_model(self) -> str:
@@ -43,7 +50,7 @@ class LLMClient:
         *,
         response_format: dict[str, Any] | None = None,
     ) -> str:
-        model = model or self.default_model
+        model = normalize_litellm_model(model or self.default_model, self.settings)
         messages = [
             {"role": "system", "content": system},
             {"role": "user", "content": user},
@@ -56,22 +63,79 @@ class LLMClient:
             for attempt in range(3):
                 try:
                     response = await litellm.acompletion(**kwargs)
-                    content = response.choices[0].message.content
-                    return content or ""
+                    choice = response.choices[0]
+                    message = choice.message
+                    content = message.content or getattr(message, "reasoning_content", None) or ""
+                    if not content.strip():
+                        finish = getattr(choice, "finish_reason", None)
+                        logger.warning(
+                            "LLM returned empty content (attempt %d, finish_reason=%s, model=%s)",
+                            attempt + 1,
+                            finish,
+                            model,
+                        )
+                        raise LLMStructuredOutputError("LLM returned empty content")
+                    return content
+                except LLMStructuredOutputError:
+                    if attempt == 2:
+                        raise
+                    await asyncio.sleep(1.5 * (attempt + 1))
                 except Exception as exc:
                     logger.warning("LLM call failed (attempt %d): %s", attempt + 1, exc)
                     if attempt == 2:
                         raise
                     await asyncio.sleep(1.5 * (attempt + 1))
-        return ""
+        raise LLMStructuredOutputError("LLM returned no content after retries")
 
     @staticmethod
-    def _parse_json(text: str) -> dict[str, Any]:
+    def _extract_json_blob(text: str) -> str | None:
+        for opener, closer in (("{", "}"), ("[", "]")):
+            start = text.find(opener)
+            if start == -1:
+                continue
+            depth = 0
+            in_string = False
+            escape = False
+            for index, char in enumerate(text[start:], start=start):
+                if in_string:
+                    if escape:
+                        escape = False
+                    elif char == "\\":
+                        escape = True
+                    elif char == '"':
+                        in_string = False
+                    continue
+                if char == '"':
+                    in_string = True
+                elif char == opener:
+                    depth += 1
+                elif char == closer:
+                    depth -= 1
+                    if depth == 0:
+                        return text[start : index + 1]
+        return None
+
+    @classmethod
+    def _parse_json(cls, text: str) -> dict[str, Any]:
         text = text.strip()
+        if not text:
+            raise LLMStructuredOutputError("Empty LLM response")
+
         fence = re.search(r"```(?:json)?\s*([\s\S]*?)```", text)
         if fence:
             text = fence.group(1).strip()
-        return json.loads(text)
+
+        try:
+            parsed = json.loads(text)
+        except json.JSONDecodeError:
+            blob = cls._extract_json_blob(text)
+            if not blob:
+                raise
+            parsed = json.loads(blob)
+
+        if not isinstance(parsed, dict):
+            raise LLMStructuredOutputError(f"Expected JSON object, got {type(parsed).__name__}")
+        return parsed
 
     async def structured_complete(
         self,
@@ -81,126 +145,79 @@ class LLMClient:
         model: str | None = None,
     ) -> T:
         schema_hint = json.dumps(model_class.model_json_schema(), ensure_ascii=False)
-        full_system = f"{system}\n\nRespond with valid JSON matching schema:\n{schema_hint}"
-        raw = await self.complete(full_system, user, model=model)
-        data = self._parse_json(raw)
-        return model_class.model_validate(data)
+        full_system = (
+            f"{system}\n\nRespond with valid JSON only — no markdown fences or commentary.\n"
+            f"Schema:\n{schema_hint}"
+        )
+        repair_user = user
+        last_error: Exception | None = None
+        last_raw = ""
+
+        for attempt in range(3):
+            try:
+                raw = await self.complete(
+                    full_system,
+                    repair_user,
+                    model=model,
+                    response_format={"type": "json_object"},
+                )
+                last_raw = raw
+                data = self._parse_json(raw)
+                return model_class.model_validate(data)
+            except (json.JSONDecodeError, LLMStructuredOutputError, ValidationError) as exc:
+                last_error = exc
+                logger.warning(
+                    "Failed to parse LLM JSON (attempt %d/3): %s; raw=%r",
+                    attempt + 1,
+                    exc,
+                    (last_raw[:500] + "...") if len(last_raw) > 500 else last_raw,
+                )
+
+            repair_user = (
+                f"{user}\n\n"
+                "Your previous reply was invalid or empty. "
+                "Return ONLY one JSON object matching the schema. No markdown."
+            )
+            if attempt < 2:
+                await asyncio.sleep(0.75 * (attempt + 1))
+
+        raise LLMStructuredOutputError(
+            f"Could not parse LLM JSON after 3 attempts: {last_error}; "
+            f"last raw={last_raw[:500]!r}"
+        ) from last_error
 
     async def decide(
         self,
         agent: AgentState,
         world: WorldState,
-        goal_description: str,
+        goal: TargetGoal,
         model: str | None = None,
+        *,
+        domain_id: str = "startup",
     ) -> AgentDecision:
-        system = build_agent_system_prompt(agent.strategy_type.value)
+        from prds.domains.registry import get_domain_profile
+
+        profile = get_domain_profile(domain_id)
+        system = profile.build_system_prompt(agent.strategy_type.value)
+        decision_context = profile.build_decision_context(agent, world, goal)
         user_payload = {
-            "goal": goal_description,
+            "domain_id": domain_id,
+            "goal": goal.model_dump(),
+            "decision_context": decision_context,
             "period": world.period,
+            "total_periods": world.total_periods,
             "world_state": world.model_dump(),
             "agent_resources": agent.resources.model_dump(),
             "agent_attributes": agent.attributes.model_dump(),
-            "recent_timeline": [e.model_dump() for e in agent.timeline[-3:]],
+            "recent_timeline": [
+                {
+                    **e.model_dump(),
+                    "financials": e.result.financials.model_dump(),
+                    "period_summary": e.result.period_summary,
+                    "goal_status": e.goal_status.model_dump(),
+                }
+                for e in agent.timeline[-3:]
+            ],
         }
         user = json.dumps(user_payload, ensure_ascii=False, indent=2)
         return await self.structured_complete(system, user, AgentDecision, model=model)
-
-
-class MockLLMClient(LLMClient):
-    """Deterministic mock for tests without API keys."""
-
-    def __init__(self) -> None:
-        super().__init__()
-        self._call_count = 0
-
-    @property
-    def api_key_available(self) -> bool:
-        return True
-
-    async def complete(
-        self,
-        system: str,
-        user: str,
-        model: str | None = None,
-        *,
-        response_format: dict[str, Any] | None = None,
-    ) -> str:
-        self._call_count += 1
-        if "ontology" in system.lower() or "entities" in system.lower():
-            return json.dumps(
-                {
-                    "entities": [
-                        {"id": "e1", "entity_type": "organization", "name": "TestOrg", "properties": {}},
-                        {"id": "e2", "entity_type": "product", "name": "TestProduct", "properties": {}},
-                        {"id": "e3", "entity_type": "capital", "name": "Cash", "properties": {}},
-                        {"id": "e4", "entity_type": "market", "name": "Market", "properties": {}},
-                        {"id": "e5", "entity_type": "time", "name": "Timeline", "properties": {}},
-                    ],
-                    "relations": [
-                        {"source_id": "e1", "target_id": "e2", "relation_type": "owns"},
-                        {"source_id": "e1", "target_id": "e3", "relation_type": "owns"},
-                        {"source_id": "e2", "target_id": "e4", "relation_type": "depends_on"},
-                    ],
-                    "risks": ["cash burn"],
-                    "opportunities": ["market growth"],
-                    "constraints": ["limited runway"],
-                    "targets": ["reach goal"],
-                }
-            )
-        if "counterfactual" in system.lower():
-            return json.dumps(
-                {
-                    "comparisons": [
-                        {
-                            "period": 1,
-                            "decision_a": "Fundraise",
-                            "outcome_a": "Secured capital, extended runway",
-                            "decision_b": "Product development",
-                            "outcome_b": "Better product but shorter runway",
-                            "difference": "Fundraise prioritized survival over product depth",
-                        }
-                    ]
-                }
-            )
-        if "principles" in system.lower() or "roadmap" in system.lower():
-            return json.dumps(
-                {
-                    "principles": ["Preserve runway early", "Invest in product after PMF signals"],
-                    "key_turning_points": ["Period 3 fundraise success"],
-                    "success_factors": ["Balanced risk management", "Timely marketing"],
-                    "failure_avoidance_factors": ["Avoid over-hiring before revenue"],
-                    "recommended_roadmap": [
-                        "Period 1-3: Stabilize product and reduce burn",
-                        "Period 4-6: Launch marketing experiments",
-                        "Period 7+: Scale proven channels",
-                    ],
-                }
-            )
-        return json.dumps(
-            {
-                "thought": "Generic mock response",
-                "reasoning": "Fallback mock",
-                "decision": "hold",
-                "action": "hold",
-                "action_params": {},
-            }
-        )
-
-    async def decide(
-        self,
-        agent: AgentState,
-        world: WorldState,
-        goal_description: str,
-        model: str | None = None,
-    ) -> AgentDecision:
-        return build_mock_decision(agent, world, goal_description)
-
-    async def structured_complete(
-        self,
-        system: str,
-        user: str,
-        model_class: type[T],
-        model: str | None = None,
-    ) -> T:
-        raw = await self.complete(system, user, model=model)
-        return model_class.model_validate(self._parse_json(raw))

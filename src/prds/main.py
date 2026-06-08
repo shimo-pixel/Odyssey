@@ -69,12 +69,30 @@ async def health() -> dict:
     settings = get_settings()
     return {
         "status": "ok",
-        "llm_configured": bool(settings.openai_api_key),
+        "llm_configured": settings.llm_configured,
         "default_agent_count": settings.prds_default_agent_count,
         "graphrag_enabled": settings.prds_use_graphrag,
         "neo4j_configured": settings.neo4j_enabled,
         "neo4j_connected": get_neo4j_store().verify() if settings.neo4j_enabled else False,
     }
+
+
+@app.get("/domains")
+async def list_domains() -> dict:
+    from prds.domains.registry import get_domain_profile, list_domain_profiles
+
+    profiles = []
+    for item in list_domain_profiles():
+        profile = get_domain_profile(item["id"])
+        profiles.append(
+            {
+                **item,
+                "default_resources": profile.default_resources,
+                "default_success_metrics": profile.default_success_metrics,
+                "default_market_info": profile.default_market_info,
+            }
+        )
+    return {"domains": profiles}
 
 
 @app.get("/config")
@@ -87,7 +105,7 @@ async def public_config() -> dict:
         "default_agent_count": settings.prds_default_agent_count,
         "default_periods": settings.prds_default_periods,
         "checkpoint_interval": settings.prds_checkpoint_interval,
-        "llm_configured": bool(settings.openai_api_key),
+        "llm_configured": settings.llm_configured,
         "graphrag_enabled": settings.prds_use_graphrag,
         "neo4j_configured": settings.neo4j_enabled,
     }

@@ -1,0 +1,9 @@
+# Optional: episode-driven GraphRAG backend (PRDS_GRAPH_BACKEND=graphiti).
+# Install on top of requirements.txt when you want the Graphiti + Neo4j knowledge
+# graph instead of the built-in incremental extractor:
+#   pip install -r requirements-graphiti.txt
+#
+# Requires a running Neo4j and an embeddings-capable, OpenAI-compatible endpoint
+# (configure GRAPHITI_EMBEDDING_* in .env). The app runs fine without this; it
+# automatically falls back to the built-in graph backend.
+graphiti-core>=0.29.0

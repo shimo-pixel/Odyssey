@@ -1,6 +1,13 @@
-import { API, actionLabel } from '../api.js';
+import { API, actionLabel, resolveDomainId } from '../api.js';
 import { pageShell } from '../layout.js';
 import { t } from '../i18n.js';
+import {
+  pickHighlightAgent,
+  renderFinancialsBlock,
+  renderGoalStatusBlock,
+  renderPeriodMetricsPanel,
+} from '../periodMetrics.js';
+import { renderUncertaintySection, mountUncertaintyInteractions } from '../distribution.js';
 import { formatPeriodLabel, formatPeriodShort, timeConfigFrom, unitLengthLabel } from '../time.js';
 
 const PATH_FETCH_LIMIT = 25;
@@ -38,8 +45,10 @@ export async function mountResults(simId) {
     );
     const eventItems = flattenEventItems(periodComparisons, timeConfig);
 
-    root.innerHTML = buildResultsHTML(result, paths, periodComparisons, eventItems, timeConfig);
-    mountInteractions(eventItems, periodComparisons, result.champion_agent_id, timeConfig);
+    const domainId = resolveDomainId(result, decisions);
+    root.innerHTML = buildResultsHTML(result, paths, periodComparisons, eventItems, timeConfig, domainId);
+    mountInteractions(eventItems, periodComparisons, result.champion_agent_id, timeConfig, domainId);
+    mountUncertaintyInteractions();
   } catch (e) {
     root.innerHTML = `<div class="glass-panel p-8 text-center"><p class="text-error font-bold">${t('results.loadFailed')}</p>
       <p class="text-sm text-on-surface-variant mt-2">${escapeHtml(e.message)}</p>
@@ -98,6 +107,9 @@ function buildPeriodComparisonsFromPaths(paths) {
         reasoning: step.reasoning,
         outcome: step.outcome,
         success: step.success,
+        financials: step.financials,
+        period_summary: step.period_summary,
+        goal_status: step.goal_status,
       });
     }
     agents.sort((a, b) => a.rank - b.rank);
@@ -111,7 +123,7 @@ function buildPeriodComparisonsFromPaths(paths) {
   });
 }
 
-function buildResultsHTML(r, paths, periodComparisons, eventItems, timeConfig) {
+function buildResultsHTML(r, paths, periodComparisons, eventItems, timeConfig, domainId = 'startup') {
   const championId = r.champion_agent_id;
   const periods = periodComparisons.length || maxPeriods(paths);
     const totalAgents = periodComparisons.reduce(
@@ -139,6 +151,10 @@ function buildResultsHTML(r, paths, periodComparisons, eventItems, timeConfig) {
         </p>`}
     </header>
 
+    ${renderUncertaintySection(r.outcome_distribution)}
+
+    ${renderResearchSection(r.world_background)}
+
     <section class="mb-10">
       <div class="flex items-center justify-between mb-4">
         <h2 class="text-lg font-bold flex items-center gap-2">
@@ -147,8 +163,8 @@ function buildResultsHTML(r, paths, periodComparisons, eventItems, timeConfig) {
         </h2>
         <span class="text-xs text-on-surface-variant">${t('results.overviewHint', { n: Math.min(paths.length, MATRIX_COL_LIMIT) })}</span>
       </div>
-      <div class="glass-panel bg-white overflow-x-auto rounded-xl">
-        ${buildDecisionMatrix(paths, periods, championId, periodComparisons, timeConfig)}
+      <div class="glass-panel bg-white rounded-xl overflow-hidden">
+        ${buildDecisionMatrix(paths, periods, championId, periodComparisons, timeConfig, domainId)}
       </div>
     </section>
 
@@ -163,7 +179,7 @@ function buildResultsHTML(r, paths, periodComparisons, eventItems, timeConfig) {
         </div>
         <div id="event-list" class="space-y-2 max-h-[620px] overflow-y-auto custom-scrollbar pr-1">
           ${eventItems.length
-            ? eventItems.map(item => eventListItem(item, timeConfig)).join('')
+            ? eventItems.map(item => eventListItem(item, timeConfig, championId, domainId)).join('')
             : `<p class="text-sm text-on-surface-variant p-4">${t('results.noEvents')}</p>`}
         </div>
       </div>
@@ -201,6 +217,46 @@ function buildResultsHTML(r, paths, periodComparisons, eventItems, timeConfig) {
     </section>`;
 }
 
+function researchProviderLabel(key) {
+  const labels = {
+    deep_research: 'Gemini Deep Research',
+    grounded: 'Gemini + Search',
+    fallback: t('research.providerFallback'),
+    off: t('research.providerOff'),
+  };
+  return labels[key] || key || '';
+}
+
+function renderResearchSection(wb) {
+  const report = (wb?.research_report || '').trim();
+  if (!report) return '';
+  const provider = researchProviderLabel(wb.research_provider);
+  const citations = wb.research_citations || [];
+  return `
+    <section class="mb-10">
+      <details class="glass-panel bg-white rounded-xl overflow-hidden">
+        <summary class="flex items-center justify-between gap-2 px-5 py-4 cursor-pointer select-none">
+          <span class="text-lg font-bold flex items-center gap-2">
+            <span class="material-symbols-outlined text-primary">travel_explore</span>
+            ${t('research.title')}
+          </span>
+          <span class="text-[10px] font-bold uppercase tracking-wider text-primary bg-primary/10 px-2 py-0.5 rounded-full">${escapeHtml(provider)}</span>
+        </summary>
+        <div class="px-5 pb-5">
+          <p class="text-xs text-on-surface-variant mb-3">${t('research.hint')}</p>
+          <div class="research-report custom-scrollbar">${escapeHtml(report)}</div>
+          ${citations.length ? `
+            <div class="mt-4">
+              <p class="text-[11px] font-bold uppercase tracking-wider text-on-surface-variant mb-2">${t('research.sources')}</p>
+              <ol class="research-citations">
+                ${citations.slice(0, 20).map(c => `<li><a href="${escapeHtml(c.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(c.title || c.url)}</a></li>`).join('')}
+              </ol>
+            </div>` : ''}
+        </div>
+      </details>
+    </section>`;
+}
+
 function statChip(label, value, highlight = false) {
   return `<div class="px-4 py-2 rounded-lg border ${highlight ? 'border-primary bg-primary/5' : 'border-outline-variant bg-white'}">
     <span class="text-[10px] uppercase font-bold text-on-surface-variant block">${label}</span>
@@ -222,10 +278,18 @@ function impactLabel(impact) {
   return { text: t('common.neutral'), cls: 'text-on-surface-variant' };
 }
 
-function eventListItem(item, timeConfig) {
+function eventListItem(item, timeConfig, championId, domainId = 'startup') {
   const ev = item.event;
   const impact = impactLabel(ev.impact || 0);
   const agentCount = item.periodData?.agents?.length || 0;
+  const highlight = pickHighlightAgent(item.periodData?.agents, championId);
+  const metrics = highlight
+    ? renderPeriodMetricsPanel(highlight.financials, highlight.goal_status, {
+      compact: true,
+      domainId,
+      periodSummary: highlight.period_summary,
+    })
+    : '';
   return `
     <button type="button" data-event-id="${item.id}" data-period="${item.period}"
       class="event-item w-full text-left p-3.5 rounded-xl border border-outline-variant bg-white hover:border-primary/40 transition-all">
@@ -236,15 +300,17 @@ function eventListItem(item, timeConfig) {
       </div>
       <p class="text-sm font-bold text-on-surface leading-snug">${escapeHtml(ev.description || formatEventType(ev.event_type))}</p>
       <p class="text-[10px] text-on-surface-variant font-mono mt-1">${escapeHtml(ev.event_type)}</p>
+      ${metrics ? `<div class="mt-2">${metrics}</div>` : ''}
       <p class="text-[11px] text-on-surface-variant mt-2">${t('results.agentsRespond', { n: agentCount })}</p>
     </button>`;
 }
 
-function renderEventHeader(item, timeConfig) {
+function renderEventHeader(item, timeConfig, championId, domainId = 'startup') {
   const period = item.periodData;
   const ev = item.event;
   const impact = impactLabel(ev.impact || 0);
   const label = periodLabel(item.period, timeConfig, period);
+  const highlight = pickHighlightAgent(period.agents, championId);
   return `
     <div>
       <div class="flex flex-wrap items-center gap-2 mb-2">
@@ -255,6 +321,7 @@ function renderEventHeader(item, timeConfig) {
       <h3 class="font-bold text-lg text-on-surface">${escapeHtml(ev.description || formatEventType(ev.event_type))}</h3>
       <p class="text-xs font-mono text-on-surface-variant mt-1">${escapeHtml(ev.event_type)}</p>
     </div>
+    ${highlight ? renderPeriodMetricsPanel(highlight.financials, highlight.goal_status, { domainId, periodSummary: highlight.period_summary }) : ''}
     <div class="mt-4 text-xs bg-surface-container-low rounded-lg p-3">
       <span class="font-bold text-on-surface block mb-1">${t('results.worldConditions')}</span>
       <p class="text-on-surface-variant leading-relaxed">${escapeHtml(period.world_summary || t('common.none'))}</p>
@@ -263,7 +330,7 @@ function renderEventHeader(item, timeConfig) {
     </div>`;
 }
 
-function renderAgentResponses(period, championId) {
+function renderAgentResponses(period, championId, domainId = 'startup') {
   const agents = period.agents || [];
   if (!agents.length) {
     return `<p class="text-sm text-on-surface-variant glass-panel p-6 rounded-xl">${t('results.noAgentData')}</p>`;
@@ -278,6 +345,12 @@ function renderAgentResponses(period, championId) {
   const cards = agents.map(agent => {
     const ok = agent.success !== false;
     const isChampion = agent.agent_id === championId;
+    const metrics = (agent.financials || agent.goal_status || agent.period_summary)
+      ? `
+        <div class="mt-3 pt-3 border-t border-outline-variant/60">
+          ${renderPeriodMetricsPanel(agent.financials, agent.goal_status, { domainId, periodSummary: agent.period_summary })}
+        </div>`
+      : '';
     return `
       <article class="agent-decision-card p-4 rounded-xl border ${isChampion ? 'border-primary bg-primary/5' : 'border-outline-variant bg-white'}">
         <div class="flex flex-wrap items-start justify-between gap-2 mb-3">
@@ -286,7 +359,7 @@ function renderAgentResponses(period, championId) {
             ${isChampion ? `<span class="text-[9px] font-bold text-primary bg-primary/10 px-1.5 py-0.5 rounded-full">${t('common.champion')}</span>` : ''}
             <span class="text-[10px] font-mono text-on-surface-variant">${agent.agent_id.slice(0, 16)}…</span>
           </div>
-          <span class="action-chip ${ok ? 'action-chip-ok' : 'action-chip-fail'}">${actionLabel(agent.action)}</span>
+          <span class="action-chip ${ok ? 'action-chip-ok' : 'action-chip-fail'}">${actionLabel(agent.action, domainId)}</span>
         </div>
         <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
           <div class="bg-surface-container-low/80 rounded-lg p-3">
@@ -299,13 +372,63 @@ function renderAgentResponses(period, championId) {
             <p class="text-xs ${ok ? 'text-secondary' : 'text-error'} mt-1 leading-relaxed font-medium">${escapeHtml(agent.outcome || (ok ? t('common.success') : t('common.failed')))}</p>
           </div>
         </div>
+        ${metrics}
       </article>`;
   }).join('');
 
   return header + cards;
 }
 
-function buildDecisionMatrix(paths, periods, championId, periodComparisons, timeConfig) {
+const ACTION_COLOR = {
+  product_dev: 'blue',
+  marketing: 'orange',
+  hire: 'teal',
+  partnership: 'green',
+  fundraise: 'purple',
+  acquisition: 'pink',
+  strategic_pivot: 'yellow',
+  layoff: 'red',
+  cost_cut: 'red',
+  hold: 'gray',
+};
+
+function actionColorKey(action) {
+  const key = typeof action === 'string' ? action : action?.value || action;
+  return ACTION_COLOR[key] || 'gray';
+}
+
+function progressTone(pct) {
+  if (pct < 34) return 'low';
+  if (pct < 67) return 'mid';
+  return 'high';
+}
+
+function dmxProgressBar(goalStatus) {
+  if (goalStatus?.progress == null) return '';
+  const pct = Math.max(0, Math.min(100, Math.round(goalStatus.progress * 100)));
+  return `
+    <div class="dmx-prog" title="${t('results.goalProgress')}: ${pct}%">
+      <div class="dmx-prog__track"><div class="dmx-prog__fill dmx-prog__fill--${progressTone(pct)}" style="width:${pct}%"></div></div>
+      <span class="dmx-prog__pct">${pct}%</span>
+    </div>`;
+}
+
+function dmxChip(action, ok, domainId) {
+  return `<span class="dmx-chip ${ok ? '' : 'dmx-chip--fail'}" data-c="${actionColorKey(action)}">
+    <span class="dmx-chip__dot"></span>${escapeHtml(actionLabel(action, domainId))}
+  </span>`;
+}
+
+function dmxLegend() {
+  return `
+    <div class="dmx-legend">
+      <span class="dmx-legend__item"><span class="dmx-legend__dot" style="background:var(--g-blue)"></span>${t('results.legendColor')}</span>
+      <span class="dmx-legend__item"><span class="dmx-chip dmx-chip--fail" style="padding:0;width:14px;height:14px"></span>${t('results.legendFail')}</span>
+      <span class="dmx-legend__item"><span class="dmx-legend__dot" style="background:var(--g-green)"></span>${t('results.legendProgress')}</span>
+    </div>`;
+}
+
+function buildDecisionMatrix(paths, periods, championId, periodComparisons, timeConfig, domainId = 'startup') {
   const periodCount = typeof periods === 'number'
     ? periods
     : Math.max(periodComparisons.length, maxPeriods(paths));
@@ -316,47 +439,52 @@ function buildDecisionMatrix(paths, periods, championId, periodComparisons, time
 
   const cols = paths.slice(0, MATRIX_COL_LIMIT);
   const header = `
-    <thead><tr class="border-b border-outline-variant bg-surface-container-low">
-      <th class="decision-matrix-cell sticky left-0 bg-surface-container-low z-10 text-left font-bold text-xs uppercase text-on-surface-variant">${t('results.timeNode')}</th>
-      <th class="decision-matrix-cell text-left text-xs uppercase text-on-surface-variant min-w-[180px]">${t('results.eventCol')}</th>
-      ${cols.map(p => `
-        <th class="decision-matrix-cell text-center text-xs min-w-[100px] ${p.agent_id === championId ? 'bg-primary/5' : ''}">
-          <span class="font-bold ${p.agent_id === championId ? 'text-primary' : ''}">#${p.rank}</span>
-          ${p.agent_id === championId ? `<span class="block text-[9px] text-primary">${t('common.champion')}</span>` : ''}
-        </th>`).join('')}
+    <thead><tr>
+      <th class="dmx-col-time text-left text-[10px] font-bold uppercase tracking-wider text-on-surface-variant">${t('results.timeNode')}</th>
+      <th class="dmx-world text-left text-[10px] font-bold uppercase tracking-wider text-on-surface-variant">${t('results.eventCol')}</th>
+      ${cols.map(p => {
+        const champ = p.agent_id === championId;
+        return `<th class="dmx-agent ${champ ? 'dmx-col-champ' : ''}">
+          <div class="dmx-agent__rank">#${p.rank}</div>
+          ${champ ? `<span class="dmx-agent__tag">${t('common.champion')}</span>` : ''}
+        </th>`;
+      }).join('')}
     </tr></thead>`;
 
   let rows = '';
-  for (let t = 1; t <= periodCount; t++) {
-    const periodData = periodComparisons.find(p => p.period === t);
-    const refStep = cols[0]?.steps?.find(s => s.period === t);
-    const events = periodData?.events?.slice(0, 2).join(', ') || refStep?.events?.slice(0, 2).join(', ') || '—';
-    const world = periodData?.world_summary?.slice(0, 60) || refStep?.world_summary?.slice(0, 60) || '—';
+  for (let period = 1; period <= periodCount; period++) {
+    const periodData = periodComparisons.find(p => p.period === period);
+    const refStep = cols[0]?.steps?.find(s => s.period === period);
+    const eventTags = (periodData?.events?.slice(0, 3) || refStep?.events?.slice(0, 3) || [])
+      .map(e => `<span class="dmx-tag">${escapeHtml(formatEventType(e))}</span>`).join('');
+    const world = periodData?.world_summary?.slice(0, 72) || refStep?.world_summary?.slice(0, 72) || '—';
 
-    rows += `<tr class="border-b border-outline-variant/50 hover:bg-surface-container-low/50">
-      <td class="decision-matrix-cell sticky left-0 bg-white z-10">
-        <span class="font-mono text-xs font-bold text-primary block">${formatPeriodShort(t, timeConfig).split(' · ')[0]}</span>
-        <span class="font-mono text-[10px] text-on-surface-variant">T${t}</span>
+    rows += `<tr>
+      <td class="dmx-col-time">
+        <span class="dmx-period__badge">${formatPeriodShort(period, timeConfig).split(' · ')[0]}</span>
+        <span class="dmx-period__t">T${period}</span>
       </td>
-      <td class="decision-matrix-cell text-xs text-on-surface-variant">
-        <p class="font-medium text-on-surface mb-0.5">${escapeHtml(world)}</p>
-        ${events !== '—' ? `<span class="text-[10px] text-tertiary">${escapeHtml(events)}</span>` : ''}
+      <td class="dmx-world">
+        <p class="dmx-world__text">${escapeHtml(world)}</p>
+        ${eventTags ? `<div class="dmx-tags">${eventTags}</div>` : ''}
       </td>
       ${cols.map(p => {
-        const step = p.steps?.find(s => s.period === t);
-        if (!step) return '<td class="decision-matrix-cell text-center text-outline text-xs">—</td>';
+        const step = p.steps?.find(s => s.period === period);
+        const champ = p.agent_id === championId;
+        if (!step) return `<td class="dmx-cell dmx-cell--empty ${champ ? 'dmx-col-champ' : ''}">—</td>`;
         const ok = step.success !== false;
-        return `<td class="decision-matrix-cell text-center ${p.agent_id === championId ? 'bg-primary/[0.03]' : ''}">
-          <span class="action-chip ${ok ? 'action-chip-ok' : 'action-chip-fail'}">${actionLabel(step.action)}</span>
+        return `<td class="dmx-cell ${champ ? 'dmx-col-champ' : ''}">
+          ${dmxChip(step.action, ok, domainId)}
+          ${dmxProgressBar(step.goal_status)}
         </td>`;
       }).join('')}
     </tr>`;
   }
 
-  return `<table class="decision-matrix w-full text-sm">${header}<tbody>${rows}</tbody></table>`;
+  return `<div class="dmx-wrap"><table class="dmx">${header}<tbody>${rows}</tbody></table></div>${dmxLegend()}`;
 }
 
-function mountInteractions(eventItems, periodComparisons, championId, timeConfig) {
+function mountInteractions(eventItems, periodComparisons, championId, timeConfig, domainId = 'startup') {
   const header = document.getElementById('event-detail-header');
   const detail = document.getElementById('event-detail');
   const items = document.querySelectorAll('.event-item');
@@ -376,10 +504,10 @@ function mountInteractions(eventItems, periodComparisons, championId, timeConfig
 
     if (header) {
       header.classList.remove('hidden');
-      header.innerHTML = renderEventHeader(item, timeConfig);
+      header.innerHTML = renderEventHeader(item, timeConfig, championId, domainId);
     }
     if (detail) {
-      detail.innerHTML = renderAgentResponses(item.periodData, championId);
+      detail.innerHTML = renderAgentResponses(item.periodData, championId, domainId);
     }
   }
 

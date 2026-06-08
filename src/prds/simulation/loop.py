@@ -3,7 +3,7 @@ from collections.abc import Awaitable, Callable
 
 from prds.agents.runtime import run_agents_parallel
 from prds.llm.client import LLMClient
-from prds.models.domain import AgentState, SimulationInput, TargetGoal, WorldBackground, WorldState
+from prds.models.domain import AgentState, Event, SimulationInput, TargetGoal, WorldBackground, WorldState
 from prds.simulation.control import get_control
 from prds.simulation.elimination import apply_elimination
 from prds.world.events import EventGenerator
@@ -21,12 +21,15 @@ async def run_simulation_loop(
     simulation_input: SimulationInput,
     *,
     run_id: str | None = None,
+    planned_events: dict[int, list[Event]] | None = None,
     on_period_complete: ProgressCallback | None = None,
     on_pause: PauseCallback | None = None,
     on_resume: PauseCallback | None = None,
     checkpoint_interval: int = 5,
     on_checkpoint: Callable[[int, list[AgentState], WorldState], Awaitable[None]] | None = None,
     world_background: WorldBackground | None = None,
+    on_period_graph: Callable[[int, list[Event], list[AgentState]], Awaitable[None]] | None = None,
+    on_period_prepare: Callable[[int, list[Event], list[AgentState], WorldState], Awaitable[WorldState]] | None = None,
 ) -> tuple[list[AgentState], WorldState]:
     config = simulation_input.config
     bg = world_background
@@ -36,6 +39,7 @@ async def run_simulation_loop(
         entity_hints=world.graph_entity_hints,
         risks=bg.risks if bg else [],
         opportunities=bg.opportunities if bg else [],
+        planned_by_period=planned_events,
     )
     model = config.llm_model or llm.default_model
     control = get_control()
@@ -44,15 +48,29 @@ async def run_simulation_loop(
 
     for period in range(1, config.periods + 1):
         user_events = control.pop_events_for_period(run_id, period) if run_id else []
-        generated = event_gen.generate_period_events(period)
+        generated = event_gen.events_for_period(period)
         events = user_events + generated
         current_world = event_gen.apply_events_to_world(
             current_world.model_copy(update={"period": period}),
             events,
         )
 
-        agents = await run_agents_parallel(llm, agents, current_world, goal, model=model)
-        agents = apply_elimination(agents, goal, current_world)
+        if on_period_prepare:
+            current_world = await on_period_prepare(period, events, agents, current_world)
+
+        agents = await run_agents_parallel(
+            llm,
+            agents,
+            current_world,
+            goal,
+            model=model,
+            domain_id=config.domain_id,
+            param_overrides=config.param_overrides,
+        )
+        agents = apply_elimination(agents, goal, current_world, domain_id=config.domain_id)
+
+        if on_period_graph:
+            await on_period_graph(period, events, agents)
 
         alive = sum(1 for a in agents if not a.eliminated)
         if on_period_complete:

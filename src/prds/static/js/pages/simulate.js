@@ -1,4 +1,4 @@
-import { API, buildPayload, getPhaseSteps } from '../api.js';
+import { API, buildPayload, DOMAIN_PROFILES, getPhaseSteps } from '../api.js';
 import { pageShell } from '../layout.js';
 import { t } from '../i18n.js';
 import { applyPrefsToSimulateForm } from './settings.js';
@@ -45,6 +45,14 @@ function settingsPanel() {
           <input type="range" name="periods" min="3" max="24" value="6" id="period-range"/>
           <span class="text-[10px] text-on-surface-variant">${t('sim.periods.hint')}</span>
         </div>
+        <div class="config-chip">
+          <div class="flex justify-between items-center">
+            <span class="text-sm font-medium text-on-surface">${t('sim.replications')}</span>
+            <span id="rep-val" class="font-mono text-sm font-bold text-primary">1</span>
+          </div>
+          <input type="range" name="replications" min="1" max="5" value="1" id="rep-range"/>
+          <span class="text-[10px] text-on-surface-variant">${t('sim.replications.hint')}</span>
+        </div>
       </div>
 
       <div class="sim-settings-section">
@@ -81,10 +89,6 @@ function settingsPanel() {
       </div>
 
       <div class="sim-settings-section mt-auto">
-        <label class="toggle-mock w-full justify-between">
-          <span>${t('sim.mockMode')}</span>
-          <input type="checkbox" name="useMock" checked />
-        </label>
         <div class="mt-4">
           <div class="flex justify-between items-center mb-2">
             <span class="text-xs text-on-surface-variant font-medium">${t('sim.readiness')}</span>
@@ -328,10 +332,26 @@ function resetStartBtn(btn) {
   btn.innerHTML = `${startBtnHtml(false)}<kbd class="sim-run-kbd hidden sm:inline">${t('sim.runShortcut')}</kbd>`;
 }
 
+function applyDomainDefaults(form) {
+  const profile = DOMAIN_PROFILES.startup;
+  const agentRange = document.getElementById('agent-range');
+  const periodRange = document.getElementById('period-range');
+  if (agentRange) {
+    agentRange.value = String(profile.defaultAgents);
+    document.getElementById('agent-val').textContent = agentRange.value;
+  }
+  if (periodRange) {
+    periodRange.value = String(profile.defaultPeriods);
+    document.getElementById('period-val').textContent = periodRange.value;
+  }
+  updateTimelinePreview(form);
+}
+
 export function mountSimulate() {
   const form = document.getElementById('sim-form');
   if (!form) return;
   applyPrefsToSimulateForm(form);
+  applyDomainDefaults(form);
   updateTimelinePreview(form);
 
   document.getElementById('field-picker-btn')?.addEventListener('click', (e) => {
@@ -370,6 +390,10 @@ export function mountSimulate() {
     document.getElementById('period-val').textContent = periodRange.value;
     updateTimelinePreview(form);
   });
+  const repRange = document.getElementById('rep-range');
+  repRange?.addEventListener('input', () => {
+    document.getElementById('rep-val').textContent = repRange.value;
+  });
 
   ['periodTimeUnit', 'periodTimeLength', 'simulationStartDate'].forEach(name => {
     form.querySelector(`[name="${name}"]`)?.addEventListener('input', () => updateTimelinePreview(form));
@@ -389,32 +413,155 @@ export function mountSimulate() {
     e.preventDefault();
     const btn = document.getElementById('start-btn');
     if (btn.disabled) return;
-    btn.dataset.loading = '1';
-    btn.disabled = true;
-    btn.innerHTML = `${startBtnHtml(true)}<kbd class="sim-run-kbd hidden sm:inline">${t('sim.runShortcut')}</kbd>`;
     const fd = new FormData(form);
     const bgVal = (fd.get('background') || '').toString().trim();
     const goalVal = (fd.get('goal') || '').toString().trim();
     if (!bgVal || !goalVal) {
       alert(t('sim.fillRequired'));
-      delete btn.dataset.loading;
-      resetStartBtn(btn);
-      updateStartButton();
       return;
     }
-    const payload = buildPayload(Object.fromEntries(fd.entries()));
-    const useMock = fd.get('useMock') === 'on';
+    btn.dataset.loading = '1';
+    btn.disabled = true;
+    btn.innerHTML = `<span class="material-symbols-outlined animate-spin text-base">progress_activity</span><span>${t('refine.analyzing')}</span>`;
+
+    const baseForm = Object.fromEntries(fd.entries());
     try {
-      const { simulation_id } = await API.createSimulation(payload, useMock);
-      localStorage.setItem('prds_last_sim', simulation_id);
-      location.hash = `#monitor/${simulation_id}`;
+      const proposal = await API.refineInput({
+        background: bgVal,
+        goal: goalVal,
+        constraints: (baseForm.constraints || '').split('\n').map(s => s.trim()).filter(Boolean),
+        domain_id: 'startup',
+      });
+      openRefineReview(proposal, baseForm);
     } catch (err) {
-      alert(t('sim.startFailed', { msg: err.message }));
+      alert(t('refine.failed', { msg: err.message }));
+    } finally {
       delete btn.dataset.loading;
       resetStartBtn(btn);
       updateStartButton();
     }
   });
+}
+
+function listToText(arr) {
+  return (arr || []).join('\n');
+}
+
+function chipList(items) {
+  if (!items || !items.length) return `<span class="text-xs text-on-surface-variant">${t('common.none')}</span>`;
+  return `<ul class="refine-bullets">${items.map(i => `<li>${escapeHtml(i)}</li>`).join('')}</ul>`;
+}
+
+function openRefineReview(proposal, baseForm) {
+  document.getElementById('refine-overlay')?.remove();
+  const overlay = document.createElement('div');
+  overlay.id = 'refine-overlay';
+  overlay.className = 'refine-overlay';
+  overlay.innerHTML = `
+    <div class="refine-modal custom-scrollbar" role="dialog" aria-modal="true">
+      <div class="refine-modal-head">
+        <div>
+          <span class="text-xs text-primary font-bold uppercase tracking-widest">${t('refine.tag')}</span>
+          <h2 class="text-lg font-bold text-on-surface mt-1">${t('refine.title')}</h2>
+          <p class="text-xs text-on-surface-variant mt-1 max-w-xl">${t('refine.subtitle')}</p>
+        </div>
+        <button type="button" id="refine-close" class="refine-icon-btn" aria-label="${t('common.close')}">
+          <span class="material-symbols-outlined">close</span>
+        </button>
+      </div>
+
+      ${proposal.notes ? `<div class="refine-note"><span class="material-symbols-outlined text-primary text-base">auto_awesome</span><p>${escapeHtml(proposal.notes)}</p></div>` : ''}
+
+      <div class="refine-grid">
+        <label class="refine-field">
+          <span class="refine-label">${t('sim.background')}</span>
+          <textarea id="refine-background" rows="5" class="refine-input">${escapeHtml(proposal.background || '')}</textarea>
+        </label>
+        <label class="refine-field">
+          <span class="refine-label">${t('sim.goal')}</span>
+          <textarea id="refine-goal" rows="3" class="refine-input">${escapeHtml(proposal.goal || '')}</textarea>
+        </label>
+        <div class="refine-cols">
+          <label class="refine-field">
+            <span class="refine-label">${t('sim.constraints')}</span>
+            <textarea id="refine-constraints" rows="4" class="refine-input" placeholder="${t('refine.onePerLine')}">${escapeHtml(listToText(proposal.constraints))}</textarea>
+          </label>
+          <label class="refine-field">
+            <span class="refine-label">${t('refine.risks')}</span>
+            <textarea id="refine-risks" rows="4" class="refine-input" placeholder="${t('refine.onePerLine')}">${escapeHtml(listToText(proposal.risks))}</textarea>
+          </label>
+          <label class="refine-field">
+            <span class="refine-label">${t('refine.opportunities')}</span>
+            <textarea id="refine-opportunities" rows="4" class="refine-input" placeholder="${t('refine.onePerLine')}">${escapeHtml(listToText(proposal.opportunities))}</textarea>
+          </label>
+        </div>
+      </div>
+
+      ${(proposal.assumptions?.length || proposal.open_questions?.length) ? `
+        <div class="refine-cols mt-2">
+          ${proposal.assumptions?.length ? `<div class="refine-aside refine-aside--warn">
+            <span class="refine-aside-title"><span class="material-symbols-outlined text-base">fact_check</span>${t('refine.assumptions')}</span>
+            ${chipList(proposal.assumptions)}
+          </div>` : ''}
+          ${proposal.open_questions?.length ? `<div class="refine-aside">
+            <span class="refine-aside-title"><span class="material-symbols-outlined text-base">help</span>${t('refine.openQuestions')}</span>
+            ${chipList(proposal.open_questions)}
+          </div>` : ''}
+        </div>` : ''}
+
+      ${Object.keys(proposal.success_metrics || {}).length ? `
+        <div class="refine-aside mt-2">
+          <span class="refine-aside-title"><span class="material-symbols-outlined text-base">track_changes</span>${t('refine.successMetrics')}</span>
+          <p class="text-xs text-on-surface-variant mb-2">${t('refine.successMetricsHint')}</p>
+          <div class="refine-metrics-chips">
+            ${Object.entries(proposal.success_metrics).map(([k, v]) =>
+              `<span class="refine-metric-chip"><strong>${escapeHtml(k)}</strong> ≥ ${escapeHtml(String(v))}</span>`
+            ).join('')}
+          </div>
+        </div>` : ''}
+
+      <div class="refine-actions">
+        <button type="button" id="refine-cancel" class="refine-btn refine-btn--ghost">${t('refine.editAgain')}</button>
+        <button type="button" id="refine-confirm" class="refine-btn refine-btn--primary">
+          <span class="material-symbols-outlined text-base">rocket_launch</span>${t('refine.confirm')}
+        </button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+
+  const close = () => overlay.remove();
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+  document.getElementById('refine-close').addEventListener('click', close);
+  document.getElementById('refine-cancel').addEventListener('click', close);
+
+  document.getElementById('refine-confirm').addEventListener('click', async () => {
+    const confirmBtn = document.getElementById('refine-confirm');
+    confirmBtn.disabled = true;
+    confirmBtn.innerHTML = `<span class="material-symbols-outlined animate-spin text-base">progress_activity</span>${t('sim.starting')}`;
+    const payload = buildPayload({
+      ...baseForm,
+      background: document.getElementById('refine-background').value.trim(),
+      goal: document.getElementById('refine-goal').value.trim(),
+      constraints: document.getElementById('refine-constraints').value,
+      risks: document.getElementById('refine-risks').value,
+      opportunities: document.getElementById('refine-opportunities').value,
+      success_metrics: proposal.success_metrics || {},
+    });
+    try {
+      const { simulation_id } = await API.createSimulation(payload);
+      localStorage.setItem('prds_last_sim', simulation_id);
+      close();
+      location.hash = `#monitor/${simulation_id}`;
+    } catch (err) {
+      alert(t('sim.startFailed', { msg: err.message }));
+      confirmBtn.disabled = false;
+      confirmBtn.innerHTML = `<span class="material-symbols-outlined text-base">rocket_launch</span>${t('refine.confirm')}`;
+    }
+  });
+}
+
+function escapeHtml(s) {
+  return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 function updateTimelinePreview(form) {
@@ -432,10 +579,19 @@ function updateTimelinePreview(form) {
   }
   if (preview) {
     const items = buildTimelinePreview(cfg, periods);
-    preview.innerHTML = items.map(item => `
+    preview.innerHTML = items.map(item => {
+      if (item.gap) {
+        return `
+      <div class="flex items-center justify-center gap-1 text-[11px] text-on-surface-variant py-0.5">
+        <span class="material-symbols-outlined text-sm">more_vert</span>
+        <span>${t('sim.timelineMore', { n: item.hidden })}</span>
+      </div>`;
+      }
+      return `
       <div class="flex items-center gap-2 text-xs bg-surface-container-low rounded-lg px-3 py-1.5">
         <span class="font-mono font-bold text-primary shrink-0">T${item.period}</span>
         <span class="text-on-surface-variant truncate">${item.label.split(' · ')[0]}</span>
-      </div>`).join('');
+      </div>`;
+    }).join('');
   }
 }

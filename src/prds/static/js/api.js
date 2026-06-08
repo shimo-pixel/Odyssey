@@ -6,8 +6,18 @@ export const API = {
     return r.json();
   },
 
-  async createSimulation(payload, useMock = true) {
-    const r = await fetch(`/simulations?use_mock=${useMock}`, {
+  async createSimulation(payload) {
+    const r = await fetch('/simulations', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!r.ok) throw new Error(await r.text());
+    return r.json();
+  },
+
+  async refineInput(payload) {
+    const r = await fetch('/simulations/refine', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
@@ -90,38 +100,58 @@ export const API = {
   },
 };
 
+export const DOMAIN_PROFILES = {
+  startup: {
+    id: 'startup',
+    labelKey: 'domain.startup',
+    resources: {
+      cash: 100,
+      team_size: 5,
+      users: 0,
+      revenue: 0,
+      product_maturity: 0.3,
+      brand_awareness: 0.2,
+      market_share: 0.05,
+      domain_metrics: {},
+    },
+    success_metrics: {},
+    market_info: {
+      tam: 1000,
+      competition_intensity: 0.5,
+      user_growth_rate: 0.05,
+    },
+    defaultPeriods: 6,
+    defaultAgents: 10,
+  },
+};
+
 export function buildPayload(form) {
-  const constraints = form.constraints
-    ? form.constraints.split('\n').map(s => s.trim()).filter(Boolean)
-    : [];
+  const profile = DOMAIN_PROFILES.startup;
+  const toList = (v) => Array.isArray(v)
+    ? v.map(s => String(s).trim()).filter(Boolean)
+    : (v ? String(v).split('\n').map(s => s.trim()).filter(Boolean) : []);
+  const constraints = toList(form.constraints);
+  const metrics = form.success_metrics && typeof form.success_metrics === 'object'
+    ? form.success_metrics
+    : {};
   return {
     current_state: {
       background: form.background || '',
-      resources: {
-        cash: 100,
-        team_size: 5,
-        users: 0,
-        revenue: 0,
-        product_maturity: 0.3,
-        brand_awareness: 0.2,
-        market_share: 0.05,
-      },
+      resources: { ...profile.resources },
       constraints,
-      market_info: {
-        tam: 1000,
-        competition_intensity: 0.5,
-        user_growth_rate: 0.05,
-      },
-      risks: [],
-      opportunities: [],
+      market_info: { ...profile.market_info },
+      risks: toList(form.risks),
+      opportunities: toList(form.opportunities),
     },
     goal: {
       description: form.goal || '',
-      success_metrics: {},
+      success_metrics: metrics,
     },
     config: {
-      agent_count: Number(form.agentCount) || 10,
-      periods: Number(form.periods) || 6,
+      domain_id: 'startup',
+      agent_count: Number(form.agentCount) || profile.defaultAgents,
+      periods: Number(form.periods) || profile.defaultPeriods,
+      replications: Number(form.replications) || 1,
       period_time_unit: form.periodTimeUnit || 'month',
       period_time_length: Number(form.periodTimeLength) || 1,
       simulation_start_date: form.simulationStartDate ? form.simulationStartDate : null,
@@ -136,10 +166,15 @@ const ACTION_KEYS = [
   'strategic_pivot', 'partnership', 'acquisition', 'cost_cut', 'hold',
 ];
 
+export function resolveDomainId() {
+  return 'startup';
+}
+
 export function actionLabel(action) {
   if (!action) return t('common.none');
   const key = typeof action === 'string' ? action : action.value || action;
-  return t(`action.${key}`, {}) !== `action.${key}` ? t(`action.${key}`) : key;
+  const label = t(`action.${key}`, {});
+  return label !== `action.${key}` ? label : key;
 }
 
 export function getActionLabels() {

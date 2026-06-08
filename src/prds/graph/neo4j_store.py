@@ -140,11 +140,15 @@ class Neo4jGraphStore:
                     "source": record["source"],
                     "target": record["target"],
                     "relation_type": record["rel_type"],
+                    "first_seen_period": record["first_seen_period"]
+                    if record["first_seen_period"] is not None
+                    else 0,
                 }
                 for record in session.run(
                     """
                     MATCH (a:Entity {simulation_id: $sim_id})-[r:RELATED {simulation_id: $sim_id}]->(b:Entity)
-                    RETURN a.id AS source, b.id AS target, r.relation_type AS rel_type
+                    RETURN a.id AS source, b.id AS target, r.relation_type AS rel_type,
+                           r.first_seen_period AS first_seen_period
                     """,
                     sim_id=simulation_id,
                 )

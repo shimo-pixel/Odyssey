@@ -4,7 +4,6 @@ export function defaultPrefs() {
   return {
     locale: 'zh',
     theme: 'light',
-    useMock: true,
     defaultAgentCount: 10,
     defaultPeriods: 6,
     periodTimeUnit: 'month',

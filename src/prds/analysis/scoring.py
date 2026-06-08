@@ -2,7 +2,7 @@ from prds.models.domain import AgentScore, AgentState, ResourceSnapshot, Strateg
 from prds.simulation.elimination import compute_goal_progress
 
 
-def _resource_efficiency(agent: AgentState, initial: ResourceSnapshot) -> float:
+def resource_efficiency(agent: AgentState, initial: ResourceSnapshot) -> float:
     if initial.cash <= 0:
         return 0.5
     final_value = (
@@ -23,20 +23,30 @@ def _resource_efficiency(agent: AgentState, initial: ResourceSnapshot) -> float:
     return max(0.0, min(1.0, ratio / 3.0))
 
 
+def _resource_efficiency(agent: AgentState, initial: ResourceSnapshot) -> float:
+    return resource_efficiency(agent, initial)
+
+
 def score_agent(
     agent: AgentState,
     goal: TargetGoal,
     initial_resources: ResourceSnapshot,
+    *,
+    domain_id: str = "startup",
+    profile=None,
 ) -> AgentScore:
-    goal_achievement = compute_goal_progress(agent.resources, goal)
-    resource_efficiency = _resource_efficiency(agent, initial_resources)
+    from prds.domains.registry import get_domain_profile
+
+    profile = profile or get_domain_profile(domain_id)
+    goal_achievement = profile.compute_goal_status(agent.resources, goal).progress
+    resource_eff = profile.score_resource_efficiency(agent, initial_resources)
     risk_control = max(0.0, 1.0 - agent.risk_exposure)
     execution_quality = agent.execution_score
     adaptability = agent.adaptability_score
 
     total = (
         goal_achievement * 0.40
-        + resource_efficiency * 0.20
+        + resource_eff * 0.20
         + risk_control * 0.15
         + execution_quality * 0.15
         + adaptability * 0.10
@@ -47,7 +57,7 @@ def score_agent(
         strategy_type=agent.strategy_type,
         total_score=round(total, 4),
         goal_achievement=round(goal_achievement, 4),
-        resource_efficiency=round(resource_efficiency, 4),
+        resource_efficiency=round(resource_eff, 4),
         risk_control=round(risk_control, 4),
         execution_quality=round(execution_quality, 4),
         adaptability=round(adaptability, 4),
@@ -60,9 +70,21 @@ def rank_agents(
     goal: TargetGoal,
     initial_resources: ResourceSnapshot,
     top_n: int = 10,
+    *,
+    domain_id: str = "startup",
 ) -> list[AgentScore]:
-    scores = [score_agent(a, goal, initial_resources) for a in agents if not a.eliminated]
+    from prds.domains.registry import get_domain_profile
+
+    profile = get_domain_profile(domain_id)
+    scores = [
+        score_agent(a, goal, initial_resources, domain_id=domain_id, profile=profile)
+        for a in agents
+        if not a.eliminated
+    ]
     if not scores:
-        scores = [score_agent(a, goal, initial_resources) for a in agents]
+        scores = [
+            score_agent(a, goal, initial_resources, domain_id=domain_id, profile=profile)
+            for a in agents
+        ]
     scores.sort(key=lambda s: s.total_score, reverse=True)
     return scores[:top_n]

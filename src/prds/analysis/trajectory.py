@@ -6,6 +6,7 @@ from prds.models.domain import (
     EventSummary,
     PeriodAgentDecision,
     PeriodComparison,
+    PeriodFinancials,
     TimelineEntry,
 )
 from prds.utils.time_labels import compute_period_label
@@ -22,6 +23,9 @@ def _step_from_entry(entry) -> DecisionStep:
         reasoning=entry.reasoning,
         outcome=entry.result.narrative if entry.result else "",
         success=entry.result.success if entry.result else True,
+        financials=entry.result.financials if entry.result else PeriodFinancials(),
+        period_summary=entry.result.period_summary if entry.result else {},
+        goal_status=entry.goal_status,
     )
 
 
@@ -36,6 +40,8 @@ def build_champion_timeline(champion: AgentState) -> list[TimelineEntry]:
                 decision=entry.decision,
                 action=entry.action,
                 result=entry.result,
+                resources_after=entry.resources_after,
+                goal_status=entry.goal_status,
             )
         )
     return timeline
@@ -99,6 +105,9 @@ def build_period_comparisons(
                     reasoning=step.reasoning,
                     outcome=step.outcome,
                     success=step.success,
+                    financials=step.financials,
+                    period_summary=step.period_summary,
+                    goal_status=step.goal_status,
                 )
             )
 
@@ -152,6 +161,9 @@ def build_period_comparisons_from_agents(
                     reasoning=entry.reasoning,
                     outcome=entry.result.narrative if entry.result else "",
                     success=entry.result.success if entry.result else True,
+                    financials=entry.result.financials if entry.result else PeriodFinancials(),
+                    period_summary=entry.result.period_summary if entry.result else {},
+                    goal_status=entry.goal_status,
                 )
             )
 

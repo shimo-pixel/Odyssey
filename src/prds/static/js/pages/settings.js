@@ -25,11 +25,7 @@ export function renderSettings() {
               <div><p class="text-sm font-medium">${t('settings.llm')}</p><p class="text-xs text-on-surface-variant" id="conn-detail">${t('settings.checking')}</p></div>
               <span id="conn-badge" class="text-xs font-bold px-2 py-1 rounded-full bg-surface-variant">—</span>
             </div>
-            <label class="toggle-mock inline-flex w-full justify-between">
-              <span>${t('settings.useMock')}</span>
-              <input type="checkbox" name="useMock" ${prefs.useMock ? 'checked' : ''} />
-            </label>
-            <p class="text-xs text-on-surface-variant">${t('settings.mockHint')}</p>
+            <p class="text-xs text-on-surface-variant">${t('settings.apiHint')}</p>
           </div>
         </section>
 
@@ -122,7 +118,7 @@ export function mountSettings() {
       badge.className = 'text-xs font-medium px-2 py-1 rounded-full g-chip g-chip-green';
       detail.textContent = t('settings.apiConfigured');
     } else {
-      badge.textContent = t('settings.mockBadge');
+      badge.textContent = t('settings.notConfigured');
       badge.className = 'text-xs font-medium px-2 py-1 rounded-full g-chip g-chip-blue';
       detail.textContent = t('settings.noApiKey');
     }
@@ -149,7 +145,6 @@ export function mountSettings() {
     e.preventDefault();
     const fd = new FormData(form);
     savePrefs({
-      useMock: fd.get('useMock') === 'on',
       defaultAgentCount: Number(fd.get('defaultAgentCount')),
       defaultPeriods: Number(fd.get('defaultPeriods')),
       periodTimeUnit: fd.get('periodTimeUnit') || 'month',
@@ -171,13 +166,11 @@ export function applyPrefsToSimulateForm(form) {
   const prefs = getPrefs();
   const agent = form.querySelector('[name="agentCount"]');
   const periods = form.querySelector('[name="periods"]');
-  const mock = form.querySelector('[name="useMock"]');
   const unit = form.querySelector('[name="periodTimeUnit"]');
   const length = form.querySelector('[name="periodTimeLength"]');
   const startDate = form.querySelector('[name="simulationStartDate"]');
   if (agent) { agent.value = prefs.defaultAgentCount; agent.dispatchEvent(new Event('input')); }
   if (periods) { periods.value = prefs.defaultPeriods; periods.dispatchEvent(new Event('input')); }
-  if (mock) mock.checked = prefs.useMock;
   if (unit) unit.value = prefs.periodTimeUnit || 'month';
   if (length) length.value = prefs.periodTimeLength || 1;
   if (startDate) startDate.value = prefs.simulationStartDate || '';
