@@ -204,8 +204,8 @@ class LLMClient:
             "domain_id": domain_id,
             "goal": goal.model_dump(),
             "decision_context": decision_context,
-            "period": world.period,
-            "total_periods": world.total_periods,
+            "event_index": world.event_index,
+            "total_events": world.total_events,
             "world_state": world.model_dump(),
             "agent_resources": agent.resources.model_dump(),
             "agent_attributes": agent.attributes.model_dump(),
@@ -213,7 +213,7 @@ class LLMClient:
                 {
                     **e.model_dump(),
                     "financials": e.result.financials.model_dump(),
-                    "period_summary": e.result.period_summary,
+                    "action_summary": e.result.action_summary,
                     "goal_status": e.goal_status.model_dump(),
                 }
                 for e in agent.timeline[-3:]

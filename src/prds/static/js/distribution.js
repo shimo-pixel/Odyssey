@@ -1,5 +1,6 @@
 import { t } from './i18n.js';
 import { fmtPct, fmtNum } from './periodMetrics.js';
+import { icon } from './icons.js';
 
 function statCard(label, value, cls = '') {
   return `
@@ -48,8 +49,8 @@ export function renderUncertaintySection(dist) {
         <p class="text-sm font-medium text-on-surface">${t('results.assumptionBanner')}</p>
       </div>
       <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
-        <h2 class="text-lg font-bold flex items-center gap-2">
-          <span class="material-symbols-outlined text-primary">insights</span>
+        <h2 class="text-sm font-medium flex items-center gap-2">
+          ${icon('insights', 'icon icon--md text-primary')}
           ${t('results.uncertainty')}
         </h2>
         <span class="text-xs text-on-surface-variant">${t('results.uncertaintyHint', { n: dist.sample_size, r: dist.replications })}</span>
@@ -120,8 +121,8 @@ function renderParamAssumptions(params) {
 
   return `
     <div class="mt-5">
-      <button type="button" id="toggle-params" class="text-sm font-bold text-primary flex items-center gap-1">
-        <span class="material-symbols-outlined text-base">tune</span>
+      <button type="button" id="toggle-params" class="text-sm font-medium text-primary flex items-center gap-1">
+        ${icon('tune', 'icon icon--sm')}
         <span id="toggle-params-label">${t('results.showParams')}</span>
       </button>
       <div id="param-assumptions" class="glass-panel bg-white p-5 rounded-xl mt-3" hidden>

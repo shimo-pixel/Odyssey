@@ -22,6 +22,10 @@ _AGENT_CONTEXT_RELATIONS = frozenset(
         "depends_on",
         "surfaces",
         "pursues",
+        "aware_of",
+        "results_in",
+        "undertakes",
+        "delegates_to",
         "related_to",
     }
 )
@@ -39,7 +43,7 @@ _RELATION_LABELS: dict[str, str] = {
 }
 
 
-def agent_node(agent: AgentState, *, period: int = 0) -> dict:
+def agent_node(agent: AgentState, *, event_index: int = 0) -> dict:
     """Stable ontology node payload for one agent."""
     attrs = agent.attributes
     return {
@@ -49,7 +53,7 @@ def agent_node(agent: AgentState, *, period: int = 0) -> dict:
         "strategy": agent.strategy_type.value,
         "risk_preference": round(attrs.risk_preference, 2),
         "execution_power": round(attrs.execution_power, 2),
-        "first_seen_period": period,
+        "first_seen_event": event_index,
         "description": (
             f"{agent.strategy_type.value} 型决策主体，"
             f"风险偏好 {attrs.risk_preference:.1f}，执行力 {attrs.execution_power:.1f}"
@@ -103,7 +107,7 @@ def register_agents_in_kg(
     for agent in agents:
         if agent.agent_id in existing:
             continue
-        nodes.append(agent_node(agent, period=0))
+        nodes.append(agent_node(agent, event_index=0))
         existing.add(agent.agent_id)
         if anchor_org_id and anchor_org_id != agent.agent_id:
             key = (agent.agent_id, anchor_org_id, "operates_in")
@@ -113,7 +117,7 @@ def register_agents_in_kg(
                         "source": agent.agent_id,
                         "target": anchor_org_id,
                         "relation_type": "operates_in",
-                        "first_seen_period": 0,
+                        "first_seen_event": 0,
                     }
                 )
                 edge_keys.add(key)
@@ -125,7 +129,7 @@ def register_agents_in_kg(
                         "source": agent.agent_id,
                         "target": market_id,
                         "relation_type": "competes",
-                        "first_seen_period": 0,
+                        "first_seen_event": 0,
                     }
                 )
                 edge_keys.add(key)
@@ -133,12 +137,12 @@ def register_agents_in_kg(
     return KnowledgeGraphData(nodes=nodes, edges=edges)
 
 
-def link_agent_period_actions(
+def link_agent_event_actions(
     kg: KnowledgeGraphData,
     agents: list[AgentState],
     events: list[Event],
     *,
-    period: int,
+    event_index: int,
 ) -> KnowledgeGraphData:
     """Wire ``responds_to`` edges from agents that acted this period to its events."""
     nodes = list(kg.nodes)
@@ -155,7 +159,7 @@ def link_agent_period_actions(
         if agent.agent_id not in node_ids or not agent.timeline:
             continue
         entry = agent.timeline[-1]
-        if entry.period != period or entry.action in ("", "hold"):
+        if entry.event_index != event_index or entry.action in ("", "hold"):
             continue
         for eid in event_ids:
             key = (agent.agent_id, eid, "responds_to")
@@ -166,7 +170,7 @@ def link_agent_period_actions(
                     "source": agent.agent_id,
                     "target": eid,
                     "relation_type": "responds_to",
-                    "first_seen_period": period,
+                    "first_seen_event": event_index,
                     "action": entry.action,
                 }
             )

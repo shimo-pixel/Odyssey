@@ -8,7 +8,7 @@ from prds.models.domain import (
     AgentAttributes,
     AgentState,
     GoalStatus,
-    PeriodLogEntry,
+    DecisionLogEntry,
     ResourceSnapshot,
     StrategyType,
     TargetGoal,
@@ -18,9 +18,9 @@ from prds.simulation.parameters import StartupParams, apply_agent_diversity, res
 
 
 def _agent(aid: str, progress: float, eliminated: bool, action: str, reason: str | None = None) -> AgentState:
-    entry = PeriodLogEntry(
-        period=1,
-        world_state=WorldState(period=1, total_periods=3),
+    entry = DecisionLogEntry(
+        event_index=1,
+        world_state=WorldState(event_index=1, total_events=3),
         action=action,
         result=ActionResult(),
         goal_status=GoalStatus(progress=progress, distance=1 - progress),

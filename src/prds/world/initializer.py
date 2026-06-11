@@ -12,7 +12,7 @@ def initialize_world(
     ontology: OntologyGraph,
     current_state: CurrentState,
     goal: TargetGoal,
-    total_periods: int,
+    total_events: int,
     *,
     world_background: WorldBackground | None = None,
 ) -> WorldState:
@@ -59,8 +59,8 @@ def initialize_world(
     entity_hints = [e.name for e in ontology.entities[:15]]
 
     return WorldState(
-        period=0,
-        total_periods=total_periods,
+        event_index=0,
+        total_events=total_events,
         environment=env,
         external_market=external_market,
         competition=competition,

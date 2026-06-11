@@ -18,16 +18,20 @@ class SynthesisOutput(BaseModel):
 
 
 class PlannedEventDraft(BaseModel):
-    period: int = Field(ge=1)
     event_type: str = Field(min_length=1, max_length=80)
     category: EventCategory
     impact: float = Field(ge=-1.0, le=1.0)
     severity: float = Field(default=0.6, ge=0.1, le=1.0)
     probability: float = Field(default=0.7, ge=0.0, le=1.0)
     description: str = Field(min_length=1, max_length=500)
+    rationale: str = Field(
+        default="",
+        max_length=300,
+        description="Why this event is likely at this point in the sequence per the industry report",
+    )
 
 
-class EventTimelinePlan(BaseModel):
+class EventPlan(BaseModel):
     narrative_arc: str = ""
     events: list[PlannedEventDraft] = Field(default_factory=list)
 
@@ -36,7 +40,7 @@ __all__ = [
     "AgentDecision",
     "CounterfactualBatch",
     "CounterfactualComparison",
-    "EventTimelinePlan",
+    "EventPlan",
     "PlannedEventDraft",
     "SynthesisOutput",
 ]

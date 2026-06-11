@@ -22,10 +22,9 @@ from prds.simulation.control import get_control
 from prds.analysis.scoring import rank_agents
 from prds.analysis.trajectory import (
     build_agent_decision_paths,
-    build_period_comparisons,
-    build_period_comparisons_from_agents,
+    build_event_comparisons,
+    build_event_comparisons_from_agents,
 )
-from prds.utils.time_labels import compute_period_label, time_config_dict
 from prds.storage.models import Base, SimulationRun
 
 
@@ -47,7 +46,7 @@ class SimulationRepository:
                 id=run_id,
                 status=SimulationStatus.PENDING.value,
                 phase=SimulationPhase.PENDING.value,
-                total_periods=config.periods,
+                total_events=config.max_events,
                 total_agents=config.agent_count,
                 alive_agents=config.agent_count,
                 input_json=simulation_input.model_dump_json(),
@@ -62,7 +61,7 @@ class SimulationRepository:
         *,
         status: SimulationStatus | None = None,
         phase: SimulationPhase | None = None,
-        current_period: int | None = None,
+        current_event_index: int | None = None,
         alive_agents: int | None = None,
         progress_pct: float | None = None,
         error: str | None = None,
@@ -75,8 +74,8 @@ class SimulationRepository:
                 run.status = status.value
             if phase:
                 run.phase = phase.value
-            if current_period is not None:
-                run.current_period = current_period
+            if current_event_index is not None:
+                run.current_event_index = current_event_index
             if alive_agents is not None:
                 run.alive_agents = alive_agents
             if progress_pct is not None:
@@ -103,43 +102,25 @@ class SimulationRepository:
             return await session.get(SimulationRun, run_id)
 
     async def _time_config_for_run(self, run_id: str, result: SimulationResult | None) -> dict:
-        if result and getattr(result, "period_time_unit", None):
-            return time_config_dict(
-                unit=result.period_time_unit,
-                length=result.period_time_length,
-                start_date=result.simulation_start_date,
-            )
-        sim_input = await self.get_input(run_id)
-        if sim_input:
-            cfg = sim_input.config
-            return time_config_dict(
-                unit=cfg.period_time_unit,
-                length=cfg.period_time_length,
-                start_date=cfg.simulation_start_date,
-            )
-        return time_config_dict()
+        return {}
 
     async def get_progress(self, run_id: str) -> SimulationProgress | None:
         run = await self.get_run(run_id)
         if not run:
             return None
         control = get_control()
-        time_cfg = await self._time_config_for_run(run_id, await self.get_result(run_id))
         return SimulationProgress(
             simulation_id=run.id,
             status=SimulationStatus(run.status),
             phase=SimulationPhase(run.phase),
-            current_period=run.current_period,
-            total_periods=run.total_periods,
+            current_event_index=run.current_event_index,
+            total_events=run.total_events,
             alive_agents=run.alive_agents,
             total_agents=run.total_agents,
             progress_pct=run.progress_pct,
             error=run.error,
             pause_pending=control.is_pause_requested(run_id),
             pending_user_events=control.pending_event_count(run_id),
-            period_time_unit=time_cfg["period_time_unit"],
-            period_time_length=time_cfg["period_time_length"],
-            simulation_start_date=time_cfg["simulation_start_date"],
         )
 
     async def get_result(self, run_id: str) -> SimulationResult | None:
@@ -161,18 +142,18 @@ class SimulationRepository:
     async def save_checkpoint(
         self,
         run_id: str,
-        period: int,
+        event_index: int,
         agents: list[AgentState],
         world: WorldState,
     ) -> None:
         checkpoint_dir = self.settings.logs_path / run_id
         checkpoint_dir.mkdir(parents=True, exist_ok=True)
         payload = {
-            "period": period,
+            "event_index": event_index,
             "agents": [a.model_dump() for a in agents],
             "world": world.model_dump(),
         }
-        path = checkpoint_dir / f"checkpoint_p{period:04d}.json"
+        path = checkpoint_dir / f"checkpoint_e{event_index:04d}.json"
         path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
     def load_latest_checkpoint_agents(self, run_id: str) -> list[AgentState] | None:
@@ -233,67 +214,53 @@ class SimulationRepository:
     async def list_agent_decisions(self, run_id: str, limit: int = 20) -> dict:
         result = await self.get_result(run_id)
         if not result:
-            return {"paths": [], "period_comparisons": [], "time_config": time_config_dict(), "domain_id": "startup"}
+            return {"paths": [], "event_comparisons": [], "domain_id": "startup"}
 
-        time_cfg = await self._time_config_for_run(run_id, result)
         domain_id = result.domain_id
-        tc = time_cfg
+        planned = result.planned_events
 
         checkpoint_agents = self.load_latest_checkpoint_agents(run_id)
         if checkpoint_agents:
             rank_by_id = self._rank_map_for_agents(result, checkpoint_agents)
-            comparisons = build_period_comparisons_from_agents(
+            comparisons = build_event_comparisons_from_agents(
                 checkpoint_agents,
                 rank_by_id,
-                unit=tc["period_time_unit"],
-                length=tc["period_time_length"],
-                start_date=tc["simulation_start_date"],
+                planned_events=planned,
             )
             if self._max_agents_in_comparisons(comparisons) > 0:
                 paths = await self._build_paths_from_agents(run_id, checkpoint_agents, result, limit)
                 return {
                     "paths": [p.model_dump() for p in paths],
-                    "period_comparisons": [c.model_dump() for c in comparisons],
-                    "time_config": time_cfg,
+                    "event_comparisons": [c.model_dump() for c in comparisons],
                     "domain_id": domain_id,
                 }
 
-        if result.period_comparisons and self._max_agents_in_comparisons(result.period_comparisons) > 1:
+        if result.event_comparisons and self._max_agents_in_comparisons(result.event_comparisons) > 1:
             paths = result.agent_paths[:limit]
-            comparisons = self._ensure_period_labels(result.period_comparisons, tc)
             return {
                 "paths": [p.model_dump() for p in paths],
-                "period_comparisons": [c.model_dump() for c in comparisons],
-                "time_config": time_cfg,
+                "event_comparisons": [c.model_dump() for c in result.event_comparisons],
                 "domain_id": domain_id,
             }
 
         paths = result.agent_paths[:limit]
-        if paths and self._max_agents_in_comparisons(build_period_comparisons(paths, **self._tc_kwargs(tc))) > 1:
-            comparisons = build_period_comparisons(paths, **self._tc_kwargs(tc))
-            return {
-                "paths": [p.model_dump() for p in paths],
-                "period_comparisons": [c.model_dump() for c in comparisons],
-                "time_config": time_cfg,
-                "domain_id": domain_id,
-            }
+        if paths:
+            comparisons = build_event_comparisons(paths, planned_events=planned)
+            if self._max_agents_in_comparisons(comparisons) > 1:
+                return {
+                    "paths": [p.model_dump() for p in paths],
+                    "event_comparisons": [c.model_dump() for c in comparisons],
+                    "domain_id": domain_id,
+                }
 
-        # Fallback for older runs: champion only
         if result.champion_timeline:
             steps = [
                 {
-                    "period": t.period,
+                    "event_index": t.event_index,
+                    "trigger_event_id": t.trigger_event_id,
                     "world_summary": t.world_state.narrative_summary or "",
                     "events": [e.event_type for e in t.world_state.recent_events],
-                    "event_summaries": [
-                        {
-                            "event_type": e.event_type,
-                            "description": e.description or e.event_type,
-                            "impact": e.impact,
-                        }
-                        for e in t.world_state.recent_events
-                    ],
-                    "action": t.action.value if hasattr(t.action, "value") else t.action,
+                    "action": t.action,
                     "decision": t.decision,
                     "reasoning": t.agent_thought,
                     "outcome": t.result.narrative if t.result else "",
@@ -312,48 +279,16 @@ class SimulationRepository:
                     "steps": steps,
                 }
             ]
-            comparisons = build_period_comparisons(
+            comparisons = build_event_comparisons(
                 [AgentDecisionPath.model_validate(p) for p in fallback_paths],
-                **self._tc_kwargs(tc),
+                planned_events=planned,
             )
-            for comp, step in zip(comparisons, steps):
-                comp.event_summaries = [
-                    EventSummary.model_validate(e) for e in step.get("event_summaries", [])
-                ]
             return {
                 "paths": fallback_paths,
-                "period_comparisons": [c.model_dump() for c in comparisons],
-                "time_config": time_cfg,
+                "event_comparisons": [c.model_dump() for c in comparisons],
                 "domain_id": domain_id,
             }
-        return {"paths": [], "period_comparisons": [], "time_config": time_cfg, "domain_id": domain_id}
-
-    @staticmethod
-    def _tc_kwargs(time_cfg: dict) -> dict:
-        return {
-            "unit": time_cfg["period_time_unit"],
-            "length": time_cfg["period_time_length"],
-            "start_date": time_cfg["simulation_start_date"],
-        }
-
-    @staticmethod
-    def _ensure_period_labels(comparisons, time_cfg: dict):
-        updated = []
-        for comp in comparisons:
-            if comp.period_label:
-                updated.append(comp)
-                continue
-            data = comp.model_dump()
-            data["period_label"] = compute_period_label(
-                comp.period,
-                unit=time_cfg["period_time_unit"],
-                length=time_cfg["period_time_length"],
-                start_date=time_cfg["simulation_start_date"],
-            )
-            from prds.models.domain import PeriodComparison as PC
-
-            updated.append(PC.model_validate(data))
-        return updated
+        return {"paths": [], "event_comparisons": [], "domain_id": domain_id}
 
     async def list_agents_from_result(self, run_id: str, offset: int = 0, limit: int = 50) -> list[dict]:
         result = await self.get_result(run_id)

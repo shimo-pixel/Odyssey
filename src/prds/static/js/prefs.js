@@ -5,17 +5,19 @@ export function defaultPrefs() {
     locale: 'zh',
     theme: 'light',
     defaultAgentCount: 10,
-    defaultPeriods: 6,
-    periodTimeUnit: 'month',
-    periodTimeLength: 1,
-    simulationStartDate: '',
+    defaultMaxEvents: 6,
     autoOpenResults: true,
   };
 }
 
 export function getPrefs() {
   try {
-    return { ...defaultPrefs(), ...JSON.parse(localStorage.getItem(PREFS_KEY) || '{}') };
+    const stored = JSON.parse(localStorage.getItem(PREFS_KEY) || '{}');
+    const prefs = { ...defaultPrefs(), ...stored };
+    if (stored.defaultPeriods != null && stored.defaultMaxEvents == null) {
+      prefs.defaultMaxEvents = stored.defaultPeriods;
+    }
+    return prefs;
   } catch {
     return defaultPrefs();
   }

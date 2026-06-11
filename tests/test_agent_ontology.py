@@ -2,7 +2,7 @@
 
 from prds.graph.agent_ontology import (
     extract_agent_subgraph,
-    link_agent_period_actions,
+    link_agent_event_actions,
     register_agents_in_kg,
     resolve_agent_node_id,
 )
@@ -12,7 +12,7 @@ from prds.models.domain import (
     Event,
     EventCategory,
     KnowledgeGraphData,
-    PeriodLogEntry,
+    DecisionLogEntry,
     ResourceSnapshot,
     StrategyType,
     TargetGoal,
@@ -56,7 +56,7 @@ def test_register_agents_creates_stable_nodes_and_links():
     kg = register_agents_in_kg(_base_graph(), [_agent("a1"), _agent("a2")])
     agent_nodes = [n for n in kg.nodes if n.get("entity_type") == "agent"]
     assert len(agent_nodes) == 2
-    assert all(n["first_seen_period"] == 0 for n in agent_nodes)
+    assert all(n["first_seen_event"] == 0 for n in agent_nodes)
     assert any(
         e["source"] == "a1" and e["target"] == "org1" and e["relation_type"] == "operates_in"
         for e in kg.edges
@@ -73,7 +73,7 @@ def test_register_agents_is_idempotent():
     assert len([n for n in kg2.nodes if n.get("entity_type") == "agent"]) == 1
 
 
-def test_link_agent_period_actions_wires_responds_to():
+def test_link_agent_event_actions_wires_responds_to():
     kg = register_agents_in_kg(_base_graph(), [_agent()])
     kg = KnowledgeGraphData(
         nodes=kg.nodes
@@ -82,21 +82,21 @@ def test_link_agent_period_actions_wires_responds_to():
                 "id": "ev_1",
                 "entity_type": "event",
                 "name": "competitor_entry",
-                "first_seen_period": 1,
+                "first_seen_event": 1,
             }
         ],
         edges=kg.edges,
     )
     agent = _agent()
     agent.timeline.append(
-        PeriodLogEntry(
-            period=1,
+        DecisionLogEntry(
+            event_index=1,
             world_state=WorldState(),
             action="product_dev",
             reasoning="加速迭代",
         )
     )
-    linked = link_agent_period_actions(kg, [agent], [_event(1)], period=1)
+    linked = link_agent_event_actions(kg, [agent], [_event(1)], event_index=1)
     assert any(
         e["source"] == "a1"
         and e["target"] == "ev_1"
@@ -115,7 +115,7 @@ def test_extract_agent_subgraph_returns_nl_facts():
                 "id": "ev_1",
                 "entity_type": "event",
                 "name": "competitor_entry",
-                "first_seen_period": 1,
+                "first_seen_event": 1,
             }
         ],
         edges=kg.edges

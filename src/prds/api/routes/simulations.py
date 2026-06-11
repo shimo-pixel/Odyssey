@@ -34,7 +34,7 @@ async def _run_simulation(run_id: str, simulation_input: SimulationInput) -> Non
     repo = get_repo()
     llm = get_llm_client()
     orchestrator = SimulationOrchestrator(llm)
-    total_periods = simulation_input.config.periods
+    total_events = simulation_input.config.max_events
 
     try:
         await repo.update_progress(
@@ -59,17 +59,18 @@ async def _run_simulation(run_id: str, simulation_input: SimulationInput) -> Non
             }.get(phase, 0)
             await repo.update_progress(run_id, phase=phase, progress_pct=float(base_pct))
 
-        async def on_period(period: int, alive: int, total: int) -> None:
-            sim_pct = 15 + (period / total_periods) * 65
+        async def on_event(event_index: int, alive: int, total: int) -> None:
+            denom = max(total_events, 1)
+            sim_pct = 15 + (event_index / denom) * 65
             await repo.update_progress(
                 run_id,
-                current_period=period,
+                current_event_index=event_index,
                 alive_agents=alive,
                 progress_pct=sim_pct,
             )
 
-        async def checkpoint(period: int, agents, world) -> None:
-            await repo.save_checkpoint(run_id, period, agents, world)
+        async def checkpoint(event_index: int, agents, world) -> None:
+            await repo.save_checkpoint(run_id, event_index, agents, world)
 
         async def on_pause() -> None:
             await repo.update_progress(run_id, status=SimulationStatus.PAUSED)
@@ -81,7 +82,7 @@ async def _run_simulation(run_id: str, simulation_input: SimulationInput) -> Non
             run_id,
             simulation_input,
             on_phase=on_phase,
-            on_period=on_period,
+            on_event=on_event,
             checkpoint=checkpoint,
             on_pause=on_pause,
             on_resume=on_resume,
@@ -255,7 +256,7 @@ async def pause_simulation(simulation_id: str) -> dict:
     if progress.status == SimulationStatus.PAUSED:
         return {"simulation_id": simulation_id, "status": "paused", "message": "Already paused"}
     get_control().request_pause(simulation_id)
-    return {"simulation_id": simulation_id, "status": "pause_requested", "message": "Will pause after current period"}
+    return {"simulation_id": simulation_id, "status": "pause_requested", "message": "Will pause after current event"}
 
 
 @router.post("/{simulation_id}/resume")
@@ -271,7 +272,7 @@ async def resume_simulation(simulation_id: str) -> dict:
     return {
         "simulation_id": simulation_id,
         "status": "running",
-        "pending_events_injected_next_period": progress.pending_user_events,
+        "pending_events_injected_next_event": progress.pending_user_events,
     }
 
 

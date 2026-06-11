@@ -1,15 +1,4 @@
-"""Unified episode-driven graph session.
-
-The orchestrator talks to one interface (:class:`EpisodicGraphSession`) and the
-implementation is chosen at runtime:
-
-- :class:`GraphitiEpisodicGraph` — streams the seed document and per-period agent
-  narratives into Graphiti + Neo4j; the LLM auto-extracts entities/relations.
-- :class:`BuiltinEpisodicGraph` — wraps the in-house incremental extractor; used
-  when Graphiti/Neo4j/embedder aren't configured (keeps the app self-contained).
-
-Both grow the graph "hop by hop" as the simulation progresses.
-"""
+"""Unified episode-driven graph session."""
 
 from __future__ import annotations
 
@@ -20,26 +9,25 @@ from prds.config import Settings, get_settings
 from prds.graph.agent_ontology import build_agents_registry_episode
 from prds.graph.graphiti_store import GraphitiStore, get_graphiti_store
 from prds.graph.incremental import IncrementalGraphBuilder
+from prds.graph.ontology_subject import SUBJECT_NODE_ID
 from prds.llm.client import LLMClient
 from prds.models.domain import AgentState, Event, KnowledgeGraphData
 
 logger = logging.getLogger(__name__)
 
 
-def build_period_episode(
-    period: int,
+def build_event_episode(
+    event_index: int,
     events: list[Event],
     agents: list[AgentState],
     *,
     world_summary: str = "",
     max_reactions: int = 5,
 ) -> str:
-    """Natural-language narrative of a single period (events + agent reactions).
-
-    Written as plain prose so the graph backend's extractor can surface entities
-    (organizations, strategies, markets, events) and the relations between them.
-    """
-    lines = [f"第 {period} 期：本期发生的关键事件与各类主体的应对。"]
+    primary = events[0] if events else None
+    label = primary.event_type if primary else "unknown"
+    lines = [f"事件 #{event_index}（{label}）：外生冲击与各类主体的应对。"]
+    lines.append(f"本体决策主体（{SUBJECT_NODE_ID}）观察此次事件并做出战略应对。")
     for event in events:
         desc = event.description or event.event_type
         direction = "利好" if event.impact >= 0 else "冲击"
@@ -54,11 +42,11 @@ def build_period_episode(
             continue
         if agent.agent_id in seen:
             continue
-        strat = agent.strategy_type.value
         entry = agent.timeline[-1]
-        if entry.action in ("", "hold"):
+        if entry.event_index != event_index or entry.action in ("", "hold"):
             continue
         seen.add(agent.agent_id)
+        strat = agent.strategy_type.value
         reason = (entry.reasoning or entry.decision or "").strip()
         sentence = f"主体 {agent.agent_id}（{strat}）选择了「{entry.action}」"
         if reason:
@@ -74,24 +62,22 @@ def build_period_episode(
 
 
 class EpisodicGraphSession:
-    """Common interface for episode-driven graph growth."""
-
     backend: str = "builtin"
 
-    async def seed(self, document: str) -> None:  # pragma: no cover - interface
+    async def seed(self, document: str) -> None:
         raise NotImplementedError
 
     async def register_agents(
         self, agents: list[AgentState], *, goal_description: str = ""
-    ) -> None:  # pragma: no cover - interface
+    ) -> None:
         raise NotImplementedError
 
-    async def ingest_period(
-        self, period: int, events: list[Event], agents: list[AgentState]
-    ) -> None:  # pragma: no cover - interface
+    async def ingest_event(
+        self, event_index: int, events: list[Event], agents: list[AgentState]
+    ) -> None:
         raise NotImplementedError
 
-    async def graph_data(self) -> KnowledgeGraphData | None:  # pragma: no cover
+    async def graph_data(self) -> KnowledgeGraphData | None:
         raise NotImplementedError
 
 
@@ -102,7 +88,6 @@ class BuiltinEpisodicGraph(EpisodicGraphSession):
         self._builder = builder
 
     async def seed(self, document: str) -> None:
-        # The builder is already seeded from the GraphRAG ontology graph.
         return None
 
     async def register_agents(
@@ -110,10 +95,10 @@ class BuiltinEpisodicGraph(EpisodicGraphSession):
     ) -> None:
         self._builder.register_agents(agents)
 
-    async def ingest_period(
-        self, period: int, events: list[Event], agents: list[AgentState]
+    async def ingest_event(
+        self, event_index: int, events: list[Event], agents: list[AgentState]
     ) -> None:
-        await self._builder.ingest_period(period, events, agents)
+        await self._builder.ingest_event(event_index, events, agents)
 
     async def graph_data(self) -> KnowledgeGraphData | None:
         return self._builder.snapshot()
@@ -154,19 +139,26 @@ class GraphitiEpisodicGraph(EpisodicGraphSession):
             source_description="odyssey_agent_registry",
         )
 
-    async def ingest_period(
-        self, period: int, events: list[Event], agents: list[AgentState]
+    async def ingest_event(
+        self, event_index: int, events: list[Event], agents: list[AgentState]
     ) -> None:
-        if not events:
+        has_action = any(
+            not a.eliminated
+            and a.timeline
+            and a.timeline[-1].event_index == event_index
+            and a.timeline[-1].action not in ("", "hold")
+            for a in agents
+        )
+        if not events and not has_action:
             return
-        body = build_period_episode(
-            period, events, agents, world_summary=self._world_summary
+        body = build_event_episode(
+            event_index, events, agents, world_summary=self._world_summary
         )
         await self._store.add_episode(
             self._group_id,
             body,
-            name=f"period_{period}_{self._group_id}",
-            source_description=f"odyssey_period_{period}",
+            name=f"event_{event_index}_{self._group_id}",
+            source_description=f"odyssey_event_{event_index}",
             reference_time=datetime.now(timezone.utc),
         )
 
@@ -174,7 +166,6 @@ class GraphitiEpisodicGraph(EpisodicGraphSession):
         data = await self._store.get_graph_data(self._group_id)
         if not data:
             return None
-        # Normalize Graphiti shape into KnowledgeGraphData (flexible dict nodes/edges).
         nodes = []
         for n in data.get("nodes", []):
             if not n.get("uuid"):
@@ -182,7 +173,6 @@ class GraphitiEpisodicGraph(EpisodicGraphSession):
             labels = n.get("labels") or []
             entity_type = _primary_label(labels)
             attrs = n.get("attributes") or {}
-            # Preserve stable agent_id when Graphiti stores it in attributes/summary.
             node_id = attrs.get("agent_id") or n["uuid"]
             if entity_type == "entity" and attrs.get("agent_id"):
                 entity_type = "agent"
@@ -229,7 +219,6 @@ async def create_episodic_session(
     model: str | None = None,
     settings: Settings | None = None,
 ) -> EpisodicGraphSession:
-    """Pick the episode-driven graph backend and seed it."""
     settings = settings or get_settings()
     backend = settings.resolved_graph_backend()
 
@@ -238,7 +227,6 @@ async def create_episodic_session(
         if store.available:
             session = GraphitiEpisodicGraph(store, simulation_id, world_summary=world_summary)
             try:
-                # Fresh start for this simulation id, then seed.
                 await store.delete_graph(simulation_id)
             except Exception:
                 pass

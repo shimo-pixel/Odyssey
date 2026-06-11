@@ -51,15 +51,15 @@ class SimulationControlRegistry:
         state.resume_event.set()
         return True
 
-    def pop_events_for_period(self, run_id: str, period: int) -> list[Event]:
+    def pop_user_events(self, run_id: str, event_index: int) -> list[Event]:
         state = self._state(run_id)
         if not state.user_events:
             return []
-        events = [user_event_to_domain(item, period) for item in state.user_events]
+        events = [self._to_domain(item, event_index) for item in state.user_events]
         state.user_events.clear()
         return events
 
-    async def maybe_pause_after_period(
+    async def maybe_pause_after_event(
         self,
         run_id: str,
         on_paused,
@@ -79,21 +79,21 @@ class SimulationControlRegistry:
     def cleanup(self, run_id: str) -> None:
         self._runs.pop(run_id, None)
 
+    @staticmethod
+    def _to_domain(item: UserEventInput, event_index: int) -> Event:
+        return Event(
+            event_id=f"user_{event_index}_{uuid.uuid4().hex[:8]}",
+            event_type="user_defined",
+            category=item.category,
+            impact=max(-1.0, min(1.0, item.impact)),
+            probability=1.0,
+            severity=item.severity,
+            description=item.description.strip(),
+        )
+
 
 _registry = SimulationControlRegistry()
 
 
 def get_control() -> SimulationControlRegistry:
     return _registry
-
-
-def user_event_to_domain(item: UserEventInput, period: int) -> Event:
-    return Event(
-        event_id=f"user_{period}_{uuid.uuid4().hex[:8]}",
-        event_type="user_defined",
-        category=item.category,
-        impact=max(-1.0, min(1.0, item.impact)),
-        probability=1.0,
-        severity=item.severity,
-        description=item.description.strip(),
-    )

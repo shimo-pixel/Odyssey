@@ -12,7 +12,7 @@ plus how representative agents reacted) and:
 - adds a small, representative set of agents as `agent` actor nodes wired to the
   events they responded to.
 
-Every node and edge is tagged with ``first_seen_period`` so the frontend can
+Every node and edge is tagged with ``first_seen_event`` so the frontend can
 replay how the graph emerged over time.
 """
 
@@ -21,8 +21,13 @@ from __future__ import annotations
 import logging
 import re
 
-from prds.graph.agent_ontology import agent_node, link_agent_period_actions
+from prds.graph.agent_ontology import agent_node, link_agent_event_actions
 from prds.graph.graphrag import CHUNK_EXTRACT_PROMPT, _slug_id
+from prds.graph.ontology_subject import (
+    SUBJECT_NODE_ID,
+    link_subject_event_actions,
+    prune_isolated_nodes,
+)
 from prds.llm.client import LLMClient
 from prds.models.domain import AgentState, Event, EventCategory, KnowledgeGraphData
 from prds.ontology.builder import _parse_json_response
@@ -40,6 +45,8 @@ _ENTITY_TYPES = {
     "event",
     "agent",
     "risk",
+    "ontology",
+    "outcome",
 }
 
 # Which entity types an event of a given category most plausibly influences.
@@ -86,7 +93,7 @@ class IncrementalGraphBuilder:
             nid = node.get("id")
             if not nid:
                 continue
-            node.setdefault("first_seen_period", 0)
+            node.setdefault("first_seen_event", 0)
             self._nodes[nid] = node
             nm = _norm(node.get("name") or nid)
             if nm:
@@ -96,7 +103,7 @@ class IncrementalGraphBuilder:
                 raw.get("source"),
                 raw.get("target"),
                 raw.get("relation_type", "related_to"),
-                period=0,
+                event_index=0,
                 description=raw.get("description", ""),
             )
 
@@ -108,7 +115,7 @@ class IncrementalGraphBuilder:
         target: str | None,
         relation_type: str,
         *,
-        period: int,
+        event_index: int,
         description: str = "",
     ) -> None:
         if not source or not target or source == target:
@@ -123,14 +130,14 @@ class IncrementalGraphBuilder:
             "source": source,
             "target": target,
             "relation_type": relation_type or "related_to",
-            "first_seen_period": period,
+            "first_seen_event": event_index,
         }
         if description:
             edge["description"] = description
         self._edges.append(edge)
 
     def _ensure_entity(
-        self, name: str, entity_type: str, period: int, description: str = ""
+        self, name: str, entity_type: str, event_index: int, description: str = ""
     ) -> str | None:
         nm = _norm(name)
         if not nm:
@@ -146,7 +153,7 @@ class IncrementalGraphBuilder:
             "id": eid,
             "entity_type": entity_type if entity_type in _ENTITY_TYPES else "entity",
             "name": name.strip(),
-            "first_seen_period": period,
+            "first_seen_event": event_index,
         }
         if description:
             node["description"] = description
@@ -184,14 +191,16 @@ class IncrementalGraphBuilder:
         for agent in agents:
             if agent.agent_id in self._nodes:
                 continue
-            self._nodes[agent.agent_id] = agent_node(agent, period=0)
+            self._nodes[agent.agent_id] = agent_node(agent, event_index=0)
+            if SUBJECT_NODE_ID in self._nodes:
+                self._add_edge(agent.agent_id, SUBJECT_NODE_ID, "delegates_to", event_index=0)
             if anchor:
-                self._add_edge(agent.agent_id, anchor, "operates_in", period=0)
+                self._add_edge(agent.agent_id, anchor, "operates_in", event_index=0)
             if market:
-                self._add_edge(agent.agent_id, market, "competes", period=0)
+                self._add_edge(agent.agent_id, market, "competes", event_index=0)
 
-    async def ingest_period(
-        self, period: int, events: list[Event], agents: list[AgentState]
+    async def ingest_event(
+        self, event_index: int, events: list[Event], agents: list[AgentState]
     ) -> None:
         """Fold one simulation period into the evolving graph."""
         event_ids: list[str] = []
@@ -205,32 +214,69 @@ class IncrementalGraphBuilder:
                     "category": event.category.value,
                     "impact": event.impact,
                     "severity": event.severity,
-                    "period": period,
-                    "first_seen_period": period,
+                    "probability": event.probability,
+                    "event_index": event_index,
+                    "first_seen_event": event_index,
                     "description": event.description,
                 }
             event_ids.append(eid)
+            if SUBJECT_NODE_ID in self._nodes:
+                self._add_edge(SUBJECT_NODE_ID, eid, "aware_of", event_index=event_index)
             for target in self._pick_targets(event.category):
-                self._add_edge(eid, target, "influences", period=period)
+                self._add_edge(eid, target, "influences", event_index=event_index)
             for prev in self._prev_event_ids:
-                self._add_edge(prev, eid, "precedes", period=period)
+                self._add_edge(prev, eid, "precedes", event_index=event_index)
 
-        if self.enabled and events:
+        has_reactions = bool(self._representative_reactions(agents))
+        if self.enabled and (events or has_reactions):
             try:
-                await self._extract_episode(period, events, agents, event_ids)
+                await self._extract_episode(event_index, events, agents, event_ids)
             except Exception as exc:  # never let graph growth break a simulation
-                logger.warning("Incremental episode extraction failed (period %s): %s", period, exc)
+                logger.warning("Incremental episode extraction failed (event %s): %s", event_index, exc)
 
         snap = self.snapshot()
-        linked = link_agent_period_actions(snap, agents, events, period=period)
+        linked = link_agent_event_actions(snap, agents, events, event_index=event_index)
         for edge in linked.edges:
             self._add_edge(
                 edge.get("source"),
                 edge.get("target"),
                 edge.get("relation_type", "responds_to"),
-                period=period,
+                event_index=event_index,
                 description=edge.get("action", ""),
             )
+
+        subject_snap = link_subject_event_actions(
+            self.snapshot(), agents, events, event_index=event_index
+        )
+        for node in subject_snap.nodes:
+            nid = node.get("id")
+            if nid and nid not in self._nodes:
+                self._nodes[nid] = node
+                nm = _norm(node.get("name") or nid)
+                if nm:
+                    self._name_to_id.setdefault(nm, nid)
+        for edge in subject_snap.edges:
+            self._add_edge(
+                edge.get("source"),
+                edge.get("target"),
+                edge.get("relation_type", "related_to"),
+                event_index=event_index,
+                description=edge.get("description", "") or edge.get("action", ""),
+            )
+
+        pruned = prune_isolated_nodes(self.snapshot())
+        self._nodes = {n["id"]: n for n in pruned.nodes if n.get("id")}
+        self._edges = list(pruned.edges)
+        self._edge_keys = {
+            (e.get("source"), e.get("target"), e.get("relation_type", ""))
+            for e in self._edges
+            if e.get("source") and e.get("target")
+        }
+        self._name_to_id = {}
+        for nid, node in self._nodes.items():
+            nm = _norm(node.get("name") or nid)
+            if nm:
+                self._name_to_id.setdefault(nm, nid)
 
         if event_ids:
             self._prev_event_ids = event_ids
@@ -262,9 +308,9 @@ class IncrementalGraphBuilder:
     # -- internals ---------------------------------------------------------
 
     def _build_episode_text(
-        self, period: int, events: list[Event], agents: list[AgentState]
+        self, event_index: int, events: list[Event], agents: list[AgentState]
     ) -> str:
-        lines = [f"第 {period} 期世界动态："]
+        lines = [f"事件 #{event_index}世界动态："]
         for event in events:
             lines.append(
                 f"- 事件「{event.event_type}」（{event.category.value}）：{event.description}"
@@ -302,12 +348,12 @@ class IncrementalGraphBuilder:
 
     async def _extract_episode(
         self,
-        period: int,
+        event_index: int,
         events: list[Event],
         agents: list[AgentState],
         event_ids: list[str],
     ) -> None:
-        episode = self._build_episode_text(period, events, agents)
+        episode = self._build_episode_text(event_index, events, agents)
         response = await self.llm.complete(
             system=CHUNK_EXTRACT_PROMPT,
             user=episode,
@@ -320,25 +366,25 @@ class IncrementalGraphBuilder:
             eid = self._ensure_entity(
                 raw.get("name", ""),
                 raw.get("entity_type", "entity"),
-                period,
+                event_index,
                 raw.get("description", ""),
             )
             if eid:
                 new_entity_ids.append(eid)
 
         for raw in data.get("relationships", []):
-            src = self._ensure_entity(raw.get("source", ""), "entity", period)
-            tgt = self._ensure_entity(raw.get("target", ""), "entity", period)
+            src = self._ensure_entity(raw.get("source", ""), "entity", event_index)
+            tgt = self._ensure_entity(raw.get("target", ""), "entity", event_index)
             self._add_edge(
                 src,
                 tgt,
                 raw.get("relation_type", "influences"),
-                period=period,
+                event_index=event_index,
                 description=raw.get("description", ""),
             )
 
         # Tie the entities surfaced this period back to the events that caused them.
         for eid in event_ids:
             for ent in new_entity_ids[:3]:
-                self._add_edge(eid, ent, "surfaces", period=period)
+                self._add_edge(eid, ent, "surfaces", event_index=event_index)
 

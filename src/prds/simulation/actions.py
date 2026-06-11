@@ -6,7 +6,7 @@ from prds.models.domain import (
     ActionType,
     AgentAttributes,
     AgentState,
-    PeriodFinancials,
+    ActionFinancials,
     ResourceDelta,
     ResourceSnapshot,
     WorldState,
@@ -283,7 +283,7 @@ def _execute_startup_action(
     total_expense = action_expense + operating_burn
     total_revenue = action_income + operating_revenue + non_cash_revenue
     net_cash_flow = resources.cash - agent.resources.cash
-    financials = PeriodFinancials(
+    financials = ActionFinancials(
         action_expense=action_expense,
         action_income=action_income,
         operating_burn=operating_burn,

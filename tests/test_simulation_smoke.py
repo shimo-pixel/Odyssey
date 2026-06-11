@@ -28,7 +28,7 @@ async def test_full_simulation_smoke():
             description="Reach 1000 users in 3 months",
             success_metrics={"users": 1000},
         ),
-        config=SimulationConfig(agent_count=5, periods=3, seed=42, checkpoint_interval=1),
+        config=SimulationConfig(agent_count=5, max_events=3, seed=42),
     )
 
     result = await orchestrator.run("test-run-id", simulation_input)

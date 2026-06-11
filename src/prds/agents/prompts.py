@@ -43,7 +43,7 @@ STRATEGY_PROMPTS: dict[str, str] = {
 
 
 ACTION_PARAM_GUIDE = """
-Realistic action_params (cash units, one period = one decision month unless stated otherwise):
+Realistic action_params (cash units; each decision follows an exogenous event):
 - product_dev: {"investment": 2-15}
 - marketing: {"budget": 2-20}
 - hire: {"count": 1-2} only if runway_months >= 3 after hire
@@ -76,10 +76,10 @@ def build_agent_system_prompt(strategy_type: str) -> str:
         "- Most paths fail or stall; choosing hold or cost_cut can be correct.\n"
         "- Read decision_context.runway_months, monthly_burn, goal_status, and recent financials first.\n"
         "- External events in recent_external_events change the feasible option set.\n"
-        "- Do NOT repeat the same action two periods in a row unless in crisis.\n"
+        "- Do NOT repeat the same action after two consecutive events unless in crisis.\n"
         "- Early stage: product_dev before heavy marketing; acquisition almost never realistic early.\n"
-        "- Fundraise fails often; do not rely on it every period.\n"
-        "- Never spend cash you cannot afford after accounting for next period burn.\n"
+        "- Fundraise fails often; do not rely on it after every event.\n"
+        "- Never spend cash you cannot afford after accounting for upcoming operating burn.\n"
         "- Reasoning must reference concrete numbers from the payload.\n"
         "Domain grounding:\n"
         "- decision_context may include domain_background, domain_key_findings, domain_graph_facts,\n"

@@ -1,4 +1,11 @@
-from enum import StrEnum
+try:
+    from enum import StrEnum
+except ImportError:  # Python < 3.11
+    from enum import Enum
+
+    class StrEnum(str, Enum):
+        pass
+
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -75,7 +82,7 @@ class ResourceSnapshot(BaseModel):
 
 
 class ResourceDelta(BaseModel):
-    """Per-period resource changes; deltas may be negative."""
+    """Resource changes from an action; deltas may be negative."""
 
     cash: float = 0.0
     team_size: int = 0
@@ -94,7 +101,6 @@ class CurrentState(BaseModel):
     personnel: list[dict[str, Any]] = Field(default_factory=list)
     financials: dict[str, Any] = Field(default_factory=dict)
     market_info: dict[str, Any] = Field(default_factory=dict)
-    time_limit_periods: int | None = None
     risks: list[str] = Field(default_factory=list)
     opportunities: list[str] = Field(default_factory=list)
 
@@ -102,7 +108,6 @@ class CurrentState(BaseModel):
 class TargetGoal(BaseModel):
     description: str
     success_metrics: dict[str, float] = Field(default_factory=dict)
-    deadline_periods: int | None = None
     baseline_snapshot: ResourceSnapshot | None = Field(
         default=None,
         description="Starting resources; goal progress is measured from this baseline",
@@ -112,10 +117,7 @@ class TargetGoal(BaseModel):
 class SimulationConfig(BaseModel):
     domain_id: str = Field(default="startup", description="Domain profile (currently startup only)")
     agent_count: int = Field(default=50, ge=1, le=500)
-    periods: int = Field(default=120, ge=1, le=360)
-    period_time_unit: str = Field(default="month", description="day|week|month|quarter|year")
-    period_time_length: int = Field(default=1, ge=1, le=52, description="Each period spans N units")
-    simulation_start_date: str | None = Field(default=None, description="Optional start date YYYY-MM-DD")
+    max_events: int = Field(default=24, ge=1, le=100, description="Upper bound on report-planned exogenous events")
     seed: int | None = None
     replications: int = Field(
         default=1, ge=1, le=10, description="Re-run the whole sim with different seeds for uncertainty"
@@ -125,7 +127,6 @@ class SimulationConfig(BaseModel):
     )
     llm_model: str | None = None
     llm_model_analysis: str | None = None
-    checkpoint_interval: int = Field(default=5, ge=1)
 
 
 class SimulationInput(BaseModel):
@@ -165,8 +166,8 @@ class KnowledgeGraphData(BaseModel):
 
 
 class WorldState(BaseModel):
-    period: int = 0
-    total_periods: int = 120
+    event_index: int = 0
+    total_events: int = 0
     environment: EnvironmentParams = Field(default_factory=EnvironmentParams)
     external_market: dict[str, float] = Field(default_factory=dict)
     competition: dict[str, float] = Field(default_factory=dict)
@@ -202,20 +203,20 @@ class AgentDecision(BaseModel):
     action_params: dict[str, Any] = Field(default_factory=dict)
 
 
-class PeriodFinancials(BaseModel):
-    """Per-period cash flow breakdown."""
+class ActionFinancials(BaseModel):
+    """Cash flow breakdown for one decision step."""
 
     action_expense: float = Field(default=0.0, ge=0.0, description="Cash spent on the chosen action")
     action_income: float = Field(default=0.0, ge=0.0, description="Cash inflow from action (fundraise, savings, etc.)")
-    operating_burn: float = Field(default=0.0, ge=0.0, description="Team operating burn for the period")
-    operating_revenue: float = Field(default=0.0, ge=0.0, description="Operating revenue recognized this period")
+    operating_burn: float = Field(default=0.0, ge=0.0, description="Team operating burn for the step")
+    operating_revenue: float = Field(default=0.0, ge=0.0, description="Operating revenue recognized this step")
     total_expense: float = Field(default=0.0, ge=0.0)
     total_revenue: float = Field(default=0.0, ge=0.0)
-    net_cash_flow: float = Field(default=0.0, description="Net change in cash this period")
+    net_cash_flow: float = Field(default=0.0, description="Net change in cash this step")
 
 
 class GoalStatus(BaseModel):
-    """Distance to the simulation goal after a period."""
+    """Distance to the simulation goal after a decision step."""
 
     progress: float = Field(default=0.0, ge=0.0, le=1.0, description="Overall goal completion ratio")
     distance: float = Field(default=1.0, ge=0.0, le=1.0, description="1 - progress")
@@ -227,17 +228,18 @@ class ActionResult(BaseModel):
     reward: float = 0.0
     penalty: float = 0.0
     resource_change: ResourceDelta = Field(default_factory=ResourceDelta)
-    financials: PeriodFinancials = Field(default_factory=PeriodFinancials)
-    period_summary: dict[str, Any] = Field(
+    financials: ActionFinancials = Field(default_factory=ActionFinancials)
+    action_summary: dict[str, Any] = Field(
         default_factory=dict,
-        description="Domain-specific period breakdown, e.g. subjects studied",
+        description="Domain-specific step breakdown, e.g. subjects studied",
     )
     narrative: str = ""
     success: bool = True
 
 
-class PeriodLogEntry(BaseModel):
-    period: int
+class DecisionLogEntry(BaseModel):
+    event_index: int
+    trigger_event_id: str = ""
     world_state: WorldState
     thought: str = ""
     reasoning: str = ""
@@ -261,7 +263,7 @@ class AgentState(BaseModel):
     risk_exposure: float = Field(default=0.0, ge=0.0, le=1.0)
     execution_score: float = Field(default=0.5, ge=0.0, le=1.0)
     adaptability_score: float = Field(default=0.5, ge=0.0, le=1.0)
-    timeline: list[PeriodLogEntry] = Field(default_factory=list)
+    timeline: list[DecisionLogEntry] = Field(default_factory=list)
 
 
 class AgentScore(BaseModel):
@@ -329,7 +331,8 @@ class WorldBackground(BaseModel):
 
 
 class TimelineEntry(BaseModel):
-    period: int
+    event_index: int
+    trigger_event_id: str = ""
     world_state: WorldState
     agent_thought: str
     decision: str
@@ -340,7 +343,8 @@ class TimelineEntry(BaseModel):
 
 
 class DecisionStep(BaseModel):
-    period: int
+    event_index: int
+    trigger_event_id: str = ""
     world_summary: str = ""
     events: list[str] = Field(default_factory=list)
     action: str = "hold"
@@ -348,8 +352,8 @@ class DecisionStep(BaseModel):
     reasoning: str = ""
     outcome: str = ""
     success: bool = True
-    financials: PeriodFinancials = Field(default_factory=PeriodFinancials)
-    period_summary: dict[str, Any] = Field(default_factory=dict)
+    financials: ActionFinancials = Field(default_factory=ActionFinancials)
+    action_summary: dict[str, Any] = Field(default_factory=dict)
     goal_status: GoalStatus = Field(default_factory=GoalStatus)
 
 
@@ -362,7 +366,7 @@ class AgentDecisionPath(BaseModel):
     steps: list[DecisionStep] = Field(default_factory=list)
 
 
-class PeriodAgentDecision(BaseModel):
+class EventAgentDecision(BaseModel):
     agent_id: str
     rank: int = 0
     action: str = "hold"
@@ -370,8 +374,8 @@ class PeriodAgentDecision(BaseModel):
     reasoning: str = ""
     outcome: str = ""
     success: bool = True
-    financials: PeriodFinancials = Field(default_factory=PeriodFinancials)
-    period_summary: dict[str, Any] = Field(default_factory=dict)
+    financials: ActionFinancials = Field(default_factory=ActionFinancials)
+    action_summary: dict[str, Any] = Field(default_factory=dict)
     goal_status: GoalStatus = Field(default_factory=GoalStatus)
 
 
@@ -381,17 +385,18 @@ class EventSummary(BaseModel):
     impact: float = 0.0
 
 
-class PeriodComparison(BaseModel):
-    period: int
-    period_label: str = ""
+class EventComparison(BaseModel):
+    event_index: int
+    event_id: str = ""
+    event_label: str = ""
     world_summary: str = ""
     events: list[str] = Field(default_factory=list)
     event_summaries: list[EventSummary] = Field(default_factory=list)
-    agents: list[PeriodAgentDecision] = Field(default_factory=list)
+    agents: list[EventAgentDecision] = Field(default_factory=list)
 
 
 class CounterfactualComparison(BaseModel):
-    period: int
+    event_index: int
     decision_a: str
     outcome_a: str
     decision_b: str
@@ -421,8 +426,8 @@ class MetricBand(BaseModel):
     mean: float = 0.0
 
 
-class PeriodProgressBand(BaseModel):
-    period: int
+class EventProgressBand(BaseModel):
+    event_index: int
     p25: float = 0.0
     median: float = 0.0
     p75: float = 0.0
@@ -449,7 +454,7 @@ class OutcomeDistribution(BaseModel):
     elimination_rate: float = 0.0
     goal_progress: MetricBand = Field(default_factory=lambda: MetricBand(metric="goal_progress"))
     metric_bands: list[MetricBand] = Field(default_factory=list)
-    progress_trajectory: list[PeriodProgressBand] = Field(default_factory=list)
+    progress_trajectory: list[EventProgressBand] = Field(default_factory=list)
     elimination_reasons: dict[str, int] = Field(default_factory=dict)
     param_assumptions: list[ParamAssumption] = Field(default_factory=list)
     disclaimer: str = (
@@ -462,10 +467,7 @@ class SimulationResult(BaseModel):
     simulation_id: str
     domain_id: str = "startup"
     agent_count: int
-    periods_simulated: int
-    period_time_unit: str = "month"
-    period_time_length: int = 1
-    simulation_start_date: str | None = None
+    events_simulated: int
     ontology: OntologyGraph
     knowledge_graph: KnowledgeGraphData
     top_agents: list[AgentScore]
@@ -473,7 +475,8 @@ class SimulationResult(BaseModel):
     champion_strategy: StrategyType
     champion_timeline: list[TimelineEntry]
     agent_paths: list[AgentDecisionPath] = Field(default_factory=list)
-    period_comparisons: list[PeriodComparison] = Field(default_factory=list)
+    event_comparisons: list[EventComparison] = Field(default_factory=list)
+    planned_events: list[Event] = Field(default_factory=list)
     world_background: WorldBackground = Field(default_factory=WorldBackground)
     counterfactuals: list[CounterfactualComparison]
     synthesis: StrategySynthesis
@@ -484,14 +487,11 @@ class SimulationProgress(BaseModel):
     simulation_id: str
     status: SimulationStatus
     phase: SimulationPhase
-    current_period: int
-    total_periods: int
+    current_event_index: int
+    total_events: int
     alive_agents: int
     total_agents: int
     progress_pct: float
     error: str | None = None
     pause_pending: bool = False
     pending_user_events: int = 0
-    period_time_unit: str = "month"
-    period_time_length: int = 1
-    simulation_start_date: str | None = None

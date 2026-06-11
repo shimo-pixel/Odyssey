@@ -7,7 +7,7 @@ from prds.models.domain import (
     Event,
     EventCategory,
     KnowledgeGraphData,
-    PeriodLogEntry,
+    DecisionLogEntry,
     ResourceSnapshot,
     StrategyType,
     WorldState,
@@ -43,8 +43,8 @@ def _agent(active: bool) -> AgentState:
         attributes=AgentAttributes(),
         resources=ResourceSnapshot(cash=100),
         timeline=[
-            PeriodLogEntry(
-                period=1,
+            DecisionLogEntry(
+                event_index=1,
                 world_state=WorldState(),
                 action="product_dev" if active else "hold",
                 reasoning="加速产品迭代",
@@ -65,20 +65,20 @@ class _DummyLLM:
 async def test_seed_nodes_tagged_period_zero():
     builder = IncrementalGraphBuilder(_DummyLLM(), _base_graph(), enabled=False)
     snap = builder.snapshot()
-    assert all(n["first_seen_period"] == 0 for n in snap.nodes)
+    assert all(n["first_seen_event"] == 0 for n in snap.nodes)
 
 
 @pytest.mark.asyncio
 async def test_events_added_with_period_tag_and_temporal_chain():
     builder = IncrementalGraphBuilder(_DummyLLM(), _base_graph(), enabled=False)
-    await builder.ingest_period(1, [_event(1)], [_agent(True)])
-    await builder.ingest_period(2, [_event(2)], [_agent(True)])
+    await builder.ingest_event(1, [_event(1)], [_agent(True)])
+    await builder.ingest_event(2, [_event(2)], [_agent(True)])
     snap = builder.snapshot()
 
     ev1 = next(n for n in snap.nodes if n["id"] == "ev_1")
     ev2 = next(n for n in snap.nodes if n["id"] == "ev_2")
-    assert ev1["first_seen_period"] == 1
-    assert ev2["first_seen_period"] == 2
+    assert ev1["first_seen_event"] == 1
+    assert ev2["first_seen_event"] == 2
 
     # temporal backbone: ev_1 precedes ev_2
     assert any(
@@ -97,7 +97,7 @@ async def test_register_agents_at_spawn_period_zero():
     agent_nodes = [n for n in snap.nodes if n.get("entity_type") == "agent"]
     assert len(agent_nodes) == 1
     assert agent_nodes[0]["id"] == "a1"
-    assert agent_nodes[0]["first_seen_period"] == 0
+    assert agent_nodes[0]["first_seen_event"] == 0
     assert any(
         e["source"] == "a1" and e["target"] == "org1" and e["relation_type"] == "operates_in"
         for e in snap.edges
@@ -108,7 +108,7 @@ async def test_register_agents_at_spawn_period_zero():
 async def test_responds_to_edge_after_period_ingest():
     builder = IncrementalGraphBuilder(_DummyLLM(), _base_graph(), enabled=False)
     builder.register_agents([_agent(True)])
-    await builder.ingest_period(1, [_event(1)], [_agent(True)])
+    await builder.ingest_event(1, [_event(1)], [_agent(True)])
     snap = builder.snapshot()
     assert any(
         e["source"] == "a1"
@@ -122,7 +122,7 @@ async def test_responds_to_edge_after_period_ingest():
 async def test_holding_agent_no_responds_to_edge():
     builder = IncrementalGraphBuilder(_DummyLLM(), _base_graph(), enabled=False)
     builder.register_agents([_agent(False)])
-    await builder.ingest_period(1, [_event(1)], [_agent(False)])
+    await builder.ingest_event(1, [_event(1)], [_agent(False)])
     snap = builder.snapshot()
     assert [n for n in snap.nodes if n.get("entity_type") == "agent"]
     assert not any(e["relation_type"] == "responds_to" for e in snap.edges)

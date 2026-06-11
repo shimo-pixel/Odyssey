@@ -6,7 +6,8 @@ from prds.models.domain import (
     ActionType,
     AgentDecision,
     AgentState,
-    PeriodLogEntry,
+    DecisionLogEntry,
+    Event,
     TargetGoal,
     WorldState,
 )
@@ -18,9 +19,9 @@ logger = logging.getLogger(__name__)
 
 def _hold_decision(reason: str) -> AgentDecision:
     return AgentDecision(
-        thought="Could not obtain a valid LLM decision this period.",
+        thought="Could not obtain a valid LLM decision for this event.",
         reasoning=reason,
-        decision="Hold and reassess next period",
+        decision="Hold and reassess after the next event",
         action=ActionType.HOLD.value,
         action_params={},
     )
@@ -55,6 +56,7 @@ async def run_agent_turn(
     *,
     domain_id: str = "startup",
     param_overrides: dict | None = None,
+    trigger_event: Event | None = None,
 ) -> AgentState:
     decision = await observe_and_decide(llm, agent, world, goal, model=model, domain_id=domain_id)
     result = execute_action(
@@ -70,8 +72,10 @@ async def run_agent_turn(
     updated = update_agent_from_result(agent, result, new_resources)
     updated = updated.model_copy(update={"goal_progress": goal_status.progress})
 
-    log_entry = PeriodLogEntry(
-        period=world.period,
+    primary = trigger_event or (world.recent_events[0] if world.recent_events else None)
+    log_entry = DecisionLogEntry(
+        event_index=world.event_index,
+        trigger_event_id=primary.event_id if primary else "",
         world_state=world,
         thought=decision.thought,
         reasoning=decision.reasoning,
@@ -96,11 +100,19 @@ async def run_agents_parallel(
     *,
     domain_id: str = "startup",
     param_overrides: dict | None = None,
+    trigger_event: Event | None = None,
 ) -> list[AgentState]:
     active = [a for a in agents if not a.eliminated]
     tasks = [
         run_agent_turn(
-            llm, agent, world, goal, model, domain_id=domain_id, param_overrides=param_overrides
+            llm,
+            agent,
+            world,
+            goal,
+            model,
+            domain_id=domain_id,
+            param_overrides=param_overrides,
+            trigger_event=trigger_event,
         )
         for agent in active
     ]

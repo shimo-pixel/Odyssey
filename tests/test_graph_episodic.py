@@ -5,17 +5,16 @@ import pytest
 from prds.config import Settings
 from prds.graph.episodic import (
     BuiltinEpisodicGraph,
-    GraphitiEpisodicGraph,
-    build_period_episode,
+    build_event_episode,
     create_episodic_session,
 )
 from prds.models.domain import (
     AgentAttributes,
     AgentState,
+    DecisionLogEntry,
     Event,
     EventCategory,
     KnowledgeGraphData,
-    PeriodLogEntry,
     ResourceSnapshot,
     StrategyType,
     WorldState,
@@ -49,8 +48,9 @@ def _agent() -> AgentState:
         attributes=AgentAttributes(),
         resources=ResourceSnapshot(cash=100),
         timeline=[
-            PeriodLogEntry(
-                period=1,
+            DecisionLogEntry(
+                event_index=1,
+                trigger_event_id="ev1",
                 world_state=WorldState(),
                 action="product_dev",
                 reasoning="加速产品迭代以应对竞争",
@@ -59,8 +59,8 @@ def _agent() -> AgentState:
     )
 
 
-def test_build_period_episode_includes_event_and_reaction():
-    text = build_period_episode(1, [_event()], [_agent()], world_summary="行业竞争激烈")
+def test_build_event_episode_includes_event_and_reaction():
+    text = build_event_episode(1, [_event()], [_agent()], world_summary="行业竞争激烈")
     assert "competitor_entry" in text
     assert "新竞争对手进入市场" in text
     assert "product_dev" in text
@@ -95,9 +95,9 @@ async def test_builtin_session_seed_is_noop_and_snapshot_works():
     session = await create_episodic_session(
         _DummyLLM(), "sim_test", base, settings=settings
     )
-    await session.seed("doc")  # no-op for builtin
+    await session.seed("doc")
     await session.register_agents([_agent()])
-    await session.ingest_period(1, [_event()], [_agent()])
+    await session.ingest_event(1, [_event()], [_agent()])
     data = await session.graph_data()
     assert data is not None
     assert any(n.get("entity_type") == "event" for n in data.nodes)

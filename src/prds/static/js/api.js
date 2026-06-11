@@ -120,7 +120,7 @@ export const DOMAIN_PROFILES = {
       competition_intensity: 0.5,
       user_growth_rate: 0.05,
     },
-    defaultPeriods: 6,
+    defaultMaxEvents: 6,
     defaultAgents: 10,
   },
 };
@@ -150,11 +150,8 @@ export function buildPayload(form) {
     config: {
       domain_id: 'startup',
       agent_count: Number(form.agentCount) || profile.defaultAgents,
-      periods: Number(form.periods) || profile.defaultPeriods,
+      max_events: Number(form.maxEvents) || profile.defaultMaxEvents,
       replications: Number(form.replications) || 1,
-      period_time_unit: form.periodTimeUnit || 'month',
-      period_time_length: Number(form.periodTimeLength) || 1,
-      simulation_start_date: form.simulationStartDate ? form.simulationStartDate : null,
       seed: 42,
       checkpoint_interval: 2,
     },

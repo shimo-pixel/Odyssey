@@ -67,10 +67,14 @@ def build_decision_context(agent: AgentState, world: WorldState, goal: TargetGoa
         context["domain_entities"] = world.graph_entity_hints[:10]
     if world.knowledge_graph:
         from prds.graph.agent_ontology import extract_agent_subgraph, resolve_agent_node_id
+        from prds.graph.ontology_subject import extract_subject_subgraph
 
         node_id = resolve_agent_node_id(world.knowledge_graph, agent)
         if node_id:
             subgraph = extract_agent_subgraph(world.knowledge_graph, node_id)
             if subgraph:
                 context["agent_graph_context"] = subgraph
+        subject_ctx = extract_subject_subgraph(world.knowledge_graph)
+        if subject_ctx:
+            context["ontology_graph_context"] = subject_ctx
     return context

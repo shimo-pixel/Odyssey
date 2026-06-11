@@ -84,17 +84,17 @@ def build_data_driven_synthesis(
             failure_avoidance_factors.append(f"{reason}（{count} 条路径因此出局）")
 
     # Roadmap: most common action among top performers each period (with support %).
-    per_period_top: dict[int, Counter] = defaultdict(Counter)
+    per_event_top: dict[int, Counter] = defaultdict(Counter)
     for a in top:
         for entry in a.timeline:
-            per_period_top[entry.period][str(entry.action)] += 1
+            per_event_top[entry.event_index][str(entry.action)] += 1
     recommended_roadmap: list[str] = []
-    for period in sorted(per_period_top):
-        counter = per_period_top[period]
+    for event_index in sorted(per_event_top):
+        counter = per_event_top[event_index]
         action, count = counter.most_common(1)[0]
         share = count / sum(counter.values())
         recommended_roadmap.append(
-            f"第 {period} 期：头部路径最常选择「{_label(domain_id, action)}」（{share:.0%}）"
+            f"事件 #{event_index}：头部路径最常选择「{_label(domain_id, action)}」（{share:.0%}）"
         )
 
     # Turning points: periods where top vs bottom median progress diverged most.
@@ -105,13 +105,13 @@ def build_data_driven_synthesis(
         bot_vals = [a.timeline[idx].goal_status.progress for a in bottom if idx < len(a.timeline)]
         if not top_vals or not bot_vals:
             continue
-        period = next((a.timeline[idx].period for a in top if idx < len(a.timeline)), idx + 1)
+        event_index = next((a.timeline[idx].event_index for a in top if idx < len(a.timeline)), idx + 1)
         gap = (sum(top_vals) / len(top_vals)) - (sum(bot_vals) / len(bot_vals))
-        turning.append((period, gap))
+        turning.append((event_index, gap))
     turning.sort(key=lambda kv: -kv[1])
     key_turning_points = [
-        f"第 {period} 期：头部与落后路径的目标进度差距达 {gap*100:.0f} 个百分点"
-        for period, gap in turning[:3]
+        f"事件 #{event_index}：头部与落后路径的目标进度差距达 {gap*100:.0f} 个百分点"
+        for event_index, gap in turning[:3]
         if gap > 0.01
     ]
 
@@ -151,13 +151,13 @@ def build_data_driven_counterfactuals(
     final_progress = {a.agent_id: _progress(a, goal, domain_id) for a in agents}
 
     # period -> action -> list of final progresses of agents who took it that period
-    per_period: dict[int, dict[str, list[float]]] = defaultdict(lambda: defaultdict(list))
+    per_event: dict[int, dict[str, list[float]]] = defaultdict(lambda: defaultdict(list))
     for a in agents:
         for entry in a.timeline:
-            per_period[entry.period][str(entry.action)].append(final_progress[a.agent_id])
+            per_event[entry.event_index][str(entry.action)].append(final_progress[a.agent_id])
 
     scored: list[tuple[int, float, str, float, str, float]] = []
-    for period, action_map in per_period.items():
+    for event_index, action_map in per_event.items():
         usable = {act: vals for act, vals in action_map.items() if len(vals) >= 2}
         if len(usable) < 2:
             continue
@@ -167,14 +167,14 @@ def build_data_driven_counterfactuals(
         if best == worst:
             continue
         spread = medians[best] - medians[worst]
-        scored.append((period, spread, best, medians[best], worst, medians[worst]))
+        scored.append((event_index, spread, best, medians[best], worst, medians[worst]))
 
     scored.sort(key=lambda x: -x[1])
     comparisons: list[CounterfactualComparison] = []
-    for period, spread, best, best_med, worst, worst_med in scored[:max_nodes]:
+    for event_index, spread, best, best_med, worst, worst_med in scored[:max_nodes]:
         comparisons.append(
             CounterfactualComparison(
-                period=period,
+                event_index=event_index,
                 decision_a=_label(domain_id, best),
                 outcome_a=f"该期选此动作的路径，最终目标完成度中位数 {best_med:.0%}",
                 decision_b=_label(domain_id, worst),
@@ -185,7 +185,7 @@ def build_data_driven_counterfactuals(
     if not comparisons:
         comparisons.append(
             CounterfactualComparison(
-                period=1,
+                event_index=1,
                 decision_a="样本不足",
                 outcome_a="本次推演的路径分化不足以提取可靠反事实对比",
                 decision_b="—",

@@ -19,9 +19,8 @@ class Settings(BaseSettings):
     prds_llm_api_base: str = ""
     prds_max_concurrent_llm: int = 20
     prds_default_agent_count: int = 50
-    prds_default_periods: int = 120
+    prds_default_max_events: int = 24
     prds_database_url: str = "sqlite+aiosqlite:///./prds.db"
-    prds_checkpoint_interval: int = 5
     prds_logs_dir: str = "./data/logs"
     prds_use_graphrag: bool = True
     neo4j_uri: str = ""

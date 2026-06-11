@@ -7,7 +7,7 @@ from prds.models.domain import (
     MetricBand,
     OutcomeDistribution,
     ParamAssumption,
-    PeriodProgressBand,
+    EventProgressBand,
     TargetGoal,
 )
 from prds.simulation.elimination import compute_goal_status
@@ -117,9 +117,9 @@ def build_outcome_distribution(
     ]
 
     # Per-period progress band across agents (uses recorded goal_status per timeline entry).
-    max_periods = max((len(a.timeline) for a in agents), default=0)
-    trajectory: list[PeriodProgressBand] = []
-    for idx in range(max_periods):
+    max_events = max((len(a.timeline) for a in agents), default=0)
+    trajectory: list[EventProgressBand] = []
+    for idx in range(max_events):
         vals = [
             a.timeline[idx].goal_status.progress
             for a in agents
@@ -128,12 +128,12 @@ def build_outcome_distribution(
         if not vals:
             continue
         s = sorted(vals)
-        period = next(
-            (a.timeline[idx].period for a in agents if idx < len(a.timeline)), idx + 1
+        event_index = next(
+            (a.timeline[idx].event_index for a in agents if idx < len(a.timeline)), idx + 1
         )
         trajectory.append(
-            PeriodProgressBand(
-                period=period,
+            EventProgressBand(
+                event_index=event_index,
                 p25=_percentile(s, 0.25),
                 median=_percentile(s, 0.50),
                 p75=_percentile(s, 0.75),

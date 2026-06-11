@@ -1,6 +1,7 @@
 import { API } from '../api.js';
 import { pageShell } from '../layout.js';
 import { t } from '../i18n.js';
+import { icon as uiIcon } from '../icons.js';
 
 const D3_URL = 'https://cdn.jsdelivr.net/npm/d3@7/+esm';
 let _d3 = null;
@@ -13,19 +14,21 @@ async function loadD3() {
 // Known entity-type styling; unknown types (e.g. arbitrary Graphiti labels) get
 // a color from the fallback palette.
 const KNOWN_TYPES = {
-  person: { color: '#1a73e8', icon: 'person' },
-  organization: { color: '#1e8e3e', icon: 'corporate_fare' },
-  product: { color: '#e8710a', icon: 'inventory_2' },
-  capital: { color: '#9334e6', icon: 'payments' },
-  market: { color: '#d93025', icon: 'storefront' },
-  technology: { color: '#f9ab00', icon: 'memory' },
-  time: { color: '#5f6368', icon: 'schedule' },
-  event: { color: '#e52592', icon: 'bolt' },
-  agent: { color: '#00897b', icon: 'smart_toy' },
-  entity: { color: '#1a73e8', icon: 'category' },
-  risk: { color: '#d93025', icon: 'warning' },
+  ontology: { color: '#f59f00', icon: 'schema', central: true },
+  person: { color: '#5e6ad2', icon: 'users' },
+  organization: { color: '#2f9e44', icon: 'layers' },
+  product: { color: '#d9480f', icon: 'tune' },
+  capital: { color: '#7048e8', icon: 'metrics' },
+  market: { color: '#e03131', icon: 'bolt' },
+  technology: { color: '#e67700', icon: 'schema' },
+  time: { color: '#71717a', icon: 'schedule' },
+  event: { color: '#c2255c', icon: 'bolt', shape: 'diamond' },
+  outcome: { color: '#1098ad', icon: 'flag' },
+  agent: { color: '#0ca678', icon: 'model' },
+  entity: { color: '#5e6ad2', icon: 'layers' },
+  risk: { color: '#e03131', icon: 'info' },
 };
-const PALETTE = ['#1a73e8', '#1e8e3e', '#e8710a', '#9334e6', '#d93025', '#f9ab00', '#00897b', '#e52592', '#3949ab', '#00838f'];
+const PALETTE = ['#5e6ad2', '#2f9e44', '#d9480f', '#7048e8', '#e03131', '#e67700', '#0ca678', '#c2255c', '#495057', '#1098ad'];
 
 let pollTimer = null;
 let currentSim = null;
@@ -34,7 +37,7 @@ export function renderKnowledge(simId) {
   return pageShell(`
     <div class="mr-0 lg:mr-80 h-screen relative bg-background overflow-hidden">
       <div class="absolute top-4 left-4 glass-panel p-4 rounded-lg z-20 max-w-xs">
-        <h4 class="text-[10px] font-bold text-outline uppercase tracking-widest mb-2">${t('kg.worldBg')}</h4>
+        <h4 class="text-[10px] font-medium text-outline mb-2">${t('kg.worldBg')}</h4>
         <p id="kg-bg-summary" class="text-xs text-on-surface-variant leading-relaxed line-clamp-4">${t('common.loading')}</p>
         <p id="kg-source" class="text-[10px] text-primary font-bold mt-2"></p>
       </div>
@@ -46,15 +49,15 @@ export function renderKnowledge(simId) {
             ${t('kg.edgeLabels')}
           </label>
         </div>
-        <button id="kg-refresh" class="glass-panel px-3 py-2 rounded-lg flex items-center gap-1.5 text-xs font-bold text-primary hover:bg-surface-container-high transition-colors">
-          <span id="kg-refresh-icon" class="material-symbols-outlined text-base">refresh</span>
+        <button id="kg-refresh" class="glass-panel px-3 py-2 rounded-lg flex items-center gap-1.5 text-xs font-medium text-primary hover:bg-surface-container-high transition-colors">
+          <span id="kg-refresh-icon">${uiIcon('refresh', 'icon icon--sm')}</span>
           ${t('kg.refresh')}
         </button>
       </div>
 
       <div id="kg-building" class="absolute bottom-6 left-1/2 -translate-x-1/2 z-20 hidden">
-        <div class="glass-panel px-4 py-2 rounded-full flex items-center gap-2 text-xs text-on-surface">
-          <span class="material-symbols-outlined text-base text-secondary animate-pulse">hub</span>
+        <div class="glass-panel px-4 py-2 rounded-lg flex items-center gap-2 text-xs text-on-surface">
+          ${uiIcon('layers', 'icon icon--sm text-secondary')}
           ${t('kg.live')}
         </div>
       </div>
@@ -64,14 +67,14 @@ export function renderKnowledge(simId) {
       </div>
 
       <div id="kg-legend" class="absolute bottom-4 left-4 glass-panel p-3 rounded-lg z-20 hidden lg:block">
-        <h4 class="text-[10px] font-bold text-outline uppercase tracking-widest mb-2">${t('kg.entityTypes')}</h4>
+        <h4 class="text-[10px] font-medium text-outline mb-2">${t('kg.entityTypes')}</h4>
         <div id="kg-legend-items" class="flex flex-col gap-1.5 text-xs max-h-48 overflow-y-auto custom-scrollbar"></div>
       </div>
 
       <aside id="kg-sidebar" class="fixed right-0 top-0 h-screen w-80 bg-surface border-l border-outline-variant p-6 z-30 translate-x-full transition-transform overflow-y-auto custom-scrollbar">
         <div class="flex justify-between items-center mb-6">
-          <h3 id="kg-detail-title" class="font-bold">${t('kg.nodeDetail')}</h3>
-          <button id="kg-close" class="material-symbols-outlined text-on-surface-variant hover:text-on-surface">close</button>
+          <h3 id="kg-detail-title" class="font-semibold text-sm">${t('kg.nodeDetail')}</h3>
+          <button id="kg-close" type="button" class="text-on-surface-variant hover:text-on-surface">${uiIcon('close', 'icon icon--md')}</button>
         </div>
         <div id="kg-detail"><p class="text-sm text-on-surface-variant">${t('kg.clickNode')}</p></div>
       </aside>
@@ -83,7 +86,7 @@ export function renderKnowledge(simId) {
         </div>
       </div>
     </div>
-  `, { sidebarActive: 'knowledge', simId, mainClass: 'ml-60 min-h-screen bg-background' });
+  `, { sidebarActive: 'knowledge', simId, mainClass: 'ml-[13.5rem] min-h-screen bg-background' });
 }
 
 export async function mountKnowledge(simId) {
@@ -137,8 +140,8 @@ function stopPolling() {
 }
 
 async function loadAndRender(id, { manual = false, silent = false, status = null } = {}) {
-  const icon = document.getElementById('kg-refresh-icon');
-  if (manual && icon) icon.classList.add('animate-spin');
+  const iconEl = document.getElementById('kg-refresh-icon');
+  if (manual && iconEl) iconEl.classList.add('icon-spin');
   try {
     const data = await API.getKnowledgeGraph(id);
     const kg = data.knowledge_graph || {};
@@ -171,7 +174,7 @@ async function loadAndRender(id, { manual = false, silent = false, status = null
       if (msg) msg.textContent = t('kg.loadFailed', { msg: e.message });
     }
   } finally {
-    if (manual && icon) setTimeout(() => icon.classList.remove('animate-spin'), 400);
+    if (manual && iconEl) setTimeout(() => iconEl.classList.remove('icon-spin'), 400);
   }
 }
 
@@ -182,12 +185,24 @@ function sourceLabel(source) {
 }
 
 function pickType(n) {
+  if (n.is_central || n.entity_type === 'ontology') return 'ontology';
   if (n.entity_type) return n.entity_type;
   if (Array.isArray(n.labels)) {
     const l = n.labels.find((x) => x && x !== 'Entity');
-    if (l) return l;
+    if (l) return l.toLowerCase() === 'ontology' ? 'ontology' : l;
   }
   return n.type || 'entity';
+}
+
+function nodeRadius(type) {
+  if (type === 'ontology') return 18;
+  if (type === 'event') return 12;
+  if (type === 'outcome') return 10;
+  return 11;
+}
+
+function isCentralNode(d) {
+  return d.type === 'ontology' || d.raw?.is_central;
 }
 
 function normalizeGraph(kg) {
@@ -213,6 +228,12 @@ function normalizeGraph(kg) {
     }))
     .filter((e) => ids.has(e.source) && ids.has(e.target));
   return { nodes, edges };
+}
+
+function typeLabel(ty) {
+  const key = `kg.type.${ty}`;
+  const label = t(key);
+  return label === key ? ty : label;
 }
 
 function buildColorMap(types) {
@@ -315,12 +336,16 @@ async function renderGraph(kg) {
 
   const sim = d3
     .forceSimulation(nodes)
-    .force('link', d3.forceLink(edges).id((d) => d.id).distance(110))
-    .force('charge', d3.forceManyBody().strength(-340))
+    .force('link', d3.forceLink(edges).id((d) => d.id).distance((d) => {
+      const sType = typeof d.source === 'object' ? d.source.type : null;
+      const tType = typeof d.target === 'object' ? d.target.type : null;
+      return sType === 'ontology' || tType === 'ontology' ? 140 : 110;
+    }))
+    .force('charge', d3.forceManyBody().strength((d) => (isCentralNode(d) ? -520 : -340)))
     .force('center', d3.forceCenter(width / 2, height / 2))
-    .force('collide', d3.forceCollide(34))
-    .force('x', d3.forceX(width / 2).strength(0.05))
-    .force('y', d3.forceY(height / 2).strength(0.05));
+    .force('collide', d3.forceCollide((d) => nodeRadius(d.type) + 6))
+    .force('x', d3.forceX(width / 2).strength((d) => (isCentralNode(d) ? 0.12 : 0.05)))
+    .force('y', d3.forceY(height / 2).strength((d) => (isCentralNode(d) ? 0.12 : 0.05)));
   _sim = sim;
 
   const linkG = root.append('g').attr('class', 'kg-links');
@@ -390,30 +415,66 @@ async function renderGraph(kg) {
     )
     .on('click', (event, d) => {
       event.stopPropagation();
-      node.select('circle').attr('stroke', 'var(--md-surface)').attr('stroke-width', 2);
-      d3.select(event.currentTarget).select('circle').attr('stroke', '#E91E63').attr('stroke-width', 3.5);
+      node.selectAll('circle, path').attr('stroke', 'var(--md-surface)').attr('stroke-width', 2);
+      const sel = d3.select(event.currentTarget);
+      if (d.type === 'event') {
+        sel.select('path').attr('stroke', '#E91E63').attr('stroke-width', 3.5);
+      } else if (isCentralNode(d)) {
+        sel.selectAll('circle').filter((_, i) => i === 1).attr('stroke', '#E91E63').attr('stroke-width', 3.5);
+      } else {
+        sel.select('circle').attr('stroke', '#E91E63').attr('stroke-width', 3.5);
+      }
       showNodeDetail(d, getColor(d.type));
     });
 
-  node
-    .append('circle')
-    .attr('r', 11)
-    .attr('fill', (d) => getColor(d.type))
-    .attr('stroke', 'var(--md-surface)')
-    .attr('stroke-width', 2);
+  node.each(function (d) {
+    const g = d3.select(this);
+    const r = nodeRadius(d.type);
+    const color = getColor(d.type);
+    if (d.type === 'event') {
+      g.append('path')
+        .attr('d', `M0,${-r} L${r},0 L0,${r} L${-r},0 Z`)
+        .attr('fill', color)
+        .attr('stroke', 'var(--md-surface)')
+        .attr('stroke-width', 2);
+    } else if (isCentralNode(d)) {
+      g.append('circle')
+        .attr('r', r + 5)
+        .attr('fill', 'none')
+        .attr('stroke', color)
+        .attr('stroke-width', 2)
+        .attr('stroke-dasharray', '4 3')
+        .attr('opacity', 0.55);
+      g.append('circle')
+        .attr('r', r)
+        .attr('fill', color)
+        .attr('stroke', '#fff')
+        .attr('stroke-width', 3);
+    } else {
+      g.append('circle')
+        .attr('r', r)
+        .attr('fill', color)
+        .attr('stroke', 'var(--md-surface)')
+        .attr('stroke-width', 2);
+    }
+  });
 
   node
     .append('text')
-    .text((d) => (d.name.length > 9 ? `${d.name.slice(0, 9)}…` : d.name))
-    .attr('font-size', '10px')
+    .text((d) => {
+      const max = isCentralNode(d) ? 12 : 9;
+      return d.name.length > max ? `${d.name.slice(0, max)}…` : d.name;
+    })
+    .attr('font-size', (d) => (isCentralNode(d) ? '11px' : '10px'))
+    .attr('font-weight', (d) => (isCentralNode(d) ? '600' : '400'))
     .attr('fill', 'var(--md-on-surface)')
-    .attr('dx', 14)
+    .attr('dx', (d) => nodeRadius(d.type) + 4)
     .attr('dy', 4)
     .style('pointer-events', 'none');
 
   svg.on('click', () => {
     document.getElementById('kg-sidebar')?.classList.add('translate-x-full');
-    node.select('circle').attr('stroke', 'var(--md-surface)').attr('stroke-width', 2);
+    node.selectAll('circle, path').attr('stroke', 'var(--md-surface)').attr('stroke-width', 2);
   });
 
   const linkPath = (d) => {
@@ -481,7 +542,7 @@ function renderLegend(types, colorMap) {
   items.innerHTML = types
     .map(
       (ty) =>
-        `<div class="flex items-center gap-2"><span class="w-2.5 h-2.5 rounded-full shrink-0" style="background:${colorMap[ty]}"></span><span class="text-on-surface-variant truncate">${escapeText(ty)}</span></div>`,
+        `<div class="flex items-center gap-2"><span class="w-2.5 h-2.5 rounded-full shrink-0" style="background:${colorMap[ty]}"></span><span class="text-on-surface-variant truncate">${escapeText(typeLabel(ty))}</span></div>`,
     )
     .join('');
 }
@@ -493,9 +554,16 @@ function showNodeDetail(d, color) {
   if (!sidebar || !detail) return;
   if (title) title.textContent = t('kg.nodeDetail');
   sidebar.classList.remove('translate-x-full');
-  const icon = KNOWN_TYPES[d.type]?.icon || 'category';
-  const attrs = d.raw.attributes || {};
-  const attrRows = Object.entries(attrs)
+  const typeIcon = KNOWN_TYPES[d.type]?.icon || 'layers';
+  const raw = d.raw || {};
+  const attrs = raw.attributes || {};
+  const extraRows = [];
+  if (raw.probability != null) extraRows.push(['probability', `${Math.round(raw.probability * 100)}%`]);
+  if (raw.impact != null) extraRows.push(['impact', raw.impact]);
+  if (raw.event_index != null) extraRows.push(['event_index', String(raw.event_index)]);
+  else if (raw.first_seen_event != null) extraRows.push(['event_index', String(raw.first_seen_event)]);
+  if (raw.goal) extraRows.push(['goal', raw.goal]);
+  const attrRows = [...extraRows, ...Object.entries(attrs)]
     .filter(([, v]) => v !== null && v !== undefined && v !== '')
     .slice(0, 12)
     .map(
@@ -503,13 +571,18 @@ function showNodeDetail(d, color) {
         `<div class="flex justify-between gap-3 text-xs py-1 border-b border-outline-variant/30"><span class="text-on-surface-variant">${escapeText(k)}</span><span class="font-mono text-on-surface text-right">${escapeText(String(v))}</span></div>`,
     )
     .join('');
+  const centralBadge = isCentralNode(d)
+    ? `<span class="inline-block mt-2 text-[10px] font-bold uppercase tracking-wider text-primary bg-primary-container/30 px-2 py-0.5 rounded">${t('kg.centralNode')}</span>`
+    : '';
   detail.innerHTML = `
-    <div class="w-12 h-12 rounded-lg flex items-center justify-center mb-4" style="background:${color}22">
-      <span class="material-symbols-outlined" style="color:${color}">${icon}</span>
+    <div class="w-12 h-12 rounded-lg flex items-center justify-center mb-4" style="background:${color}22;color:${color}">
+      ${uiIcon(typeIcon, 'icon icon--lg')}
     </div>
     <h4 class="font-bold text-lg break-words">${escapeText(d.name)}</h4>
-    <p class="text-xs font-mono text-outline mt-1">${escapeText(d.type)}</p>
+    <p class="text-xs font-mono text-outline mt-1">${escapeText(typeLabel(d.type))}</p>
+    ${centralBadge}
     ${d.summary ? `<p class="text-sm text-on-surface-variant mt-4 leading-relaxed">${escapeText(d.summary)}</p>` : ''}
+    ${raw.description && raw.description !== d.summary ? `<p class="text-sm text-on-surface-variant mt-2 leading-relaxed">${escapeText(raw.description)}</p>` : ''}
     ${attrRows ? `<div class="mt-4"><p class="text-[11px] font-bold uppercase text-on-surface-variant tracking-wider mb-1">${t('kg.properties')}</p>${attrRows}</div>` : ''}`;
 }
 

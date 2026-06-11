@@ -5,6 +5,7 @@ import re
 from typing import Any
 
 from prds.graph.neo4j_store import Neo4jGraphStore, get_neo4j_store
+from prds.graph.ontology_subject import inject_ontology_subject
 from prds.llm.client import LLMClient
 from prds.models.domain import (
     BackgroundReport,
@@ -236,7 +237,13 @@ class GraphRAGIndexer:
 
         kg = KnowledgeGraph()
         kg.build_from_ontology(ontology)
-        kg_data = kg.to_data()
+        kg_data = inject_ontology_subject(
+            kg.to_data(),
+            current_state=current_state,
+            goal=goal,
+            ontology=ontology,
+            report=report,
+        )
 
         summary, communities, entity_reports = await self._summarize_world(ontology, document)
         background = WorldBackground(

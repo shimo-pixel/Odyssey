@@ -2,7 +2,7 @@ import { API, statusLabel, getEventCategories } from '../api.js';
 import { pageShell } from '../layout.js';
 import { t } from '../i18n.js';
 import { getPrefs } from '../prefs.js';
-import { formatPeriodLabel, timeConfigFrom } from '../time.js';
+import { icon } from '../icons.js';
 
 let cleanup = null;
 
@@ -10,45 +10,45 @@ export function renderMonitor(simId) {
   const cats = getEventCategories();
   return pageShell(`
     <div class="flex flex-col h-screen overflow-hidden bg-background">
-      <header class="h-20 border-b border-outline-variant flex items-center px-6 lg:px-8 gap-6 bg-surface/80 backdrop-blur-sm shrink-0">
+      <header class="h-16 border-b border-outline-variant flex items-center px-6 lg:px-8 gap-6 bg-surface/95 backdrop-blur-sm shrink-0">
         <div class="flex-1 min-w-0">
           <div class="flex justify-between items-center mb-2">
-            <span class="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider">${t('monitor.progress')}</span>
-            <span id="prog-pct" class="font-mono text-sm font-bold text-primary">0%</span>
+            <span class="text-xs font-medium text-on-surface-variant">${t('monitor.progress')}</span>
+            <span id="prog-pct" class="font-mono text-sm font-semibold text-primary">0%</span>
           </div>
           <div class="h-1.5 bg-surface-container rounded-full overflow-hidden">
-            <div id="prog-bar" class="h-full bg-primary transition-all duration-500" style="width:0%"></div>
+            <div id="prog-bar" class="h-full transition-all duration-500 rounded-full" style="width:0%;background:linear-gradient(90deg,var(--tone-blue),var(--tone-green))"></div>
           </div>
         </div>
         <div class="flex items-center gap-6 shrink-0 border-l border-outline-variant pl-6">
-          <div class="text-center"><p class="text-[10px] text-on-surface-variant font-bold">${t('monitor.period')}</p><p id="stat-period" class="font-mono text-lg font-bold">0</p></div>
+          <div class="text-center"><p class="text-[10px] text-on-surface-variant font-bold">${t('monitor.event')}</p><p id="stat-event" class="font-mono text-lg font-bold">0</p></div>
           <div class="text-center"><p class="text-[10px] text-on-surface-variant font-bold">${t('monitor.alive')}</p><p id="stat-alive" class="font-mono text-lg font-bold text-secondary">—</p></div>
           <div class="text-center"><p class="text-[10px] text-on-surface-variant font-bold">${t('monitor.status')}</p><p id="stat-status" class="font-mono text-sm font-bold text-tertiary">—</p></div>
         </div>
         <div id="pause-controls" class="shrink-0 flex items-center gap-2">
           <button type="button" id="pause-btn" class="hidden monitor-btn monitor-btn-outline">
-            <span class="material-symbols-outlined text-base">pause</span>${t('monitor.pause')}
+            ${icon('pause', 'icon icon--sm')}${t('monitor.pause')}
           </button>
           <button type="button" id="resume-btn" class="hidden monitor-btn monitor-btn-primary">
-            <span class="material-symbols-outlined text-base">play_arrow</span>${t('monitor.resume')}
+            ${icon('play', 'icon icon--sm')}${t('monitor.resume')}
           </button>
         </div>
       </header>
       <div class="flex-1 relative canvas-grid flex min-h-0">
         <div class="flex-1 relative overflow-hidden flex items-center justify-center">
           <div id="running-view" class="text-center p-8 max-w-md">
-            <div class="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4" style="background:var(--g-blue-light)">
-              <span id="running-icon" class="material-symbols-outlined text-primary text-3xl animate-pulse">hub</span>
+            <div class="w-14 h-14 rounded-lg flex items-center justify-center mx-auto mb-4 bg-surface-container border border-outline-variant">
+              <span id="running-icon">${icon('layers', 'icon icon--xl text-primary')}</span>
             </div>
-            <h3 id="running-title" class="font-bold text-lg mb-2">${t('monitor.running')}</h3>
+            <h3 id="running-title" class="font-semibold text-base mb-2">${t('monitor.running')}</h3>
             <p id="running-desc" class="text-sm text-on-surface-variant">${t('monitor.runningDesc')}</p>
             <p id="pause-hint" class="hidden text-xs text-tertiary mt-3 font-medium">${t('monitor.pausePending')}</p>
             <div id="live-feed" class="mt-6 text-left space-y-2"></div>
           </div>
           <div id="paused-view" class="hidden absolute inset-0 flex items-center justify-center p-8 bg-surface/60 backdrop-blur-sm">
-            <div class="max-w-lg text-center glass-panel p-8 rounded-2xl">
-              <span class="material-symbols-outlined text-tertiary text-4xl mb-3">pause_circle</span>
-              <h3 class="font-bold text-xl mb-2">${t('monitor.paused')}</h3>
+            <div class="max-w-lg text-center glass-panel p-8 rounded-lg">
+              ${icon('pause', 'icon icon--xl text-on-surface-variant mx-auto mb-3')}
+              <h3 class="font-semibold text-lg mb-2">${t('monitor.paused')}</h3>
               <p class="text-sm text-on-surface-variant leading-relaxed">${t('monitor.pausedDesc')}</p>
             </div>
           </div>
@@ -65,14 +65,14 @@ export function renderMonitor(simId) {
           </div>
           <div id="aside-paused" class="hidden flex flex-col flex-1 min-h-0">
             <div class="p-5 border-b border-outline-variant bg-tertiary/5">
-              <h3 class="text-sm font-bold flex items-center gap-2">
-                <span class="material-symbols-outlined text-tertiary text-lg">edit_note</span>${t('monitor.injectEvent')}
+              <h3 class="text-sm font-medium flex items-center gap-2">
+                ${icon('edit', 'icon icon--md text-primary')}${t('monitor.injectEvent')}
               </h3>
               <p class="text-[11px] text-on-surface-variant mt-1">${t('monitor.injectHint')}</p>
             </div>
             <form id="event-form" class="p-5 space-y-4 border-b border-outline-variant">
               <div>
-                <label class="text-xs font-bold text-on-surface-variant uppercase tracking-wider">${t('monitor.eventDesc')}</label>
+                <label class="text-xs font-medium text-on-surface-variant">${t('monitor.eventDesc')}</label>
                 <textarea name="description" rows="3" required maxlength="500"
                   placeholder="${t('monitor.eventPlaceholder')}"
                   class="mt-1.5 w-full text-sm rounded-lg border-outline-variant bg-surface-container-lowest resize-none"></textarea>
@@ -101,7 +101,7 @@ export function renderMonitor(simId) {
                 <input type="range" name="severity" min="0.1" max="1" step="0.1" value="0.6" class="w-full accent-primary"/>
               </div>
               <button type="submit" class="w-full monitor-btn monitor-btn-primary justify-center">
-                <span class="material-symbols-outlined text-base">add</span>${t('monitor.addEvent')}
+                ${icon('add', 'icon icon--sm')}${t('monitor.addEvent')}
               </button>
             </form>
             <div class="px-5 py-3 flex items-center justify-between border-b border-outline-variant">
@@ -115,21 +115,22 @@ export function renderMonitor(simId) {
         </aside>
       </div>
     </div>
-  `, { sidebarActive: 'monitor', simId, mainClass: 'ml-60' });
+  `, { sidebarActive: 'monitor', simId, mainClass: 'ml-[13.5rem]' });
 }
 
 function pauseBtnHtml(waiting = false) {
-  if (waiting) {
-    return `<span class="material-symbols-outlined text-base">pause</span>${t('monitor.waitPause')}`;
-  }
-  return `<span class="material-symbols-outlined text-base">pause</span>${t('monitor.pause')}`;
+  return `${icon('pause', 'icon icon--sm')}${waiting ? t('monitor.waitPause') : t('monitor.pause')}`;
+}
+
+function setRunningIcon(name) {
+  const el = document.getElementById('running-icon');
+  if (el) el.innerHTML = icon(name, 'icon icon--xl text-primary');
 }
 
 export function mountMonitor(simId) {
   if (cleanup) cleanup();
-  let lastPeriod = 0;
+  let lastEventIndex = 0;
   let isPaused = false;
-  let timeConfig = timeConfigFrom();
 
   const pauseBtn = document.getElementById('pause-btn');
   const resumeBtn = document.getElementById('resume-btn');
@@ -191,15 +192,11 @@ export function mountMonitor(simId) {
   });
 
   cleanup = API.pollStatus(simId, async (data) => {
-    timeConfig = timeConfigFrom(data);
     document.getElementById('prog-pct').textContent = `${Math.round(data.progress_pct)}%`;
     document.getElementById('prog-bar').style.width = `${data.progress_pct}%`;
-    const periodLabel = data.current_period > 0
-      ? formatPeriodLabel(data.current_period, timeConfig)
-      : t('common.none');
-    document.getElementById('stat-period').innerHTML = data.current_period > 0
-      ? `<span class="block text-sm leading-tight">${periodLabel.split(' · ')[0]}</span><span class="text-[10px] text-on-surface-variant font-normal">T${data.current_period} / ${data.total_periods}</span>`
-      : `0 / ${data.total_periods}`;
+    document.getElementById('stat-event').textContent = data.current_event_index > 0
+      ? `${data.current_event_index} / ${data.total_events}`
+      : `0 / ${data.total_events}`;
     document.getElementById('stat-alive').textContent = `${data.alive_agents} / ${data.total_agents}`;
     document.getElementById('stat-status').textContent = statusLabel(data.status);
 
@@ -225,20 +222,18 @@ export function mountMonitor(simId) {
       await refreshEventList(simId);
       document.getElementById('running-title').textContent = t('monitor.paused');
       document.getElementById('running-desc').textContent = t('monitor.pausedShort');
-      document.getElementById('running-icon').textContent = 'pause_circle';
-      document.getElementById('running-icon').classList.remove('animate-pulse');
+      setRunningIcon('pause');
     } else if (!nowPaused && isPaused) {
       isPaused = false;
       resumeBtn.disabled = false;
       document.getElementById('running-title').textContent = t('monitor.running');
       document.getElementById('running-desc').textContent = t('monitor.runningDesc');
-      document.getElementById('running-icon').textContent = 'hub';
-      document.getElementById('running-icon').classList.add('animate-pulse');
+      setRunningIcon('layers');
     }
 
-    if (data.current_period > lastPeriod && data.phase === 'simulation') {
-      lastPeriod = data.current_period;
-      const label = formatPeriodLabel(data.current_period, timeConfig);
+    if (data.current_event_index > lastEventIndex && data.phase === 'simulation') {
+      lastEventIndex = data.current_event_index;
+      const label = t('unit.eventNth', { n: data.current_event_index });
       const feedKey = data.status === 'paused' ? 'monitor.feedPaused' : 'monitor.feedDone';
       appendFeed(t(feedKey, { label, n: data.alive_agents }));
     }

@@ -1,4 +1,4 @@
-import { initHealthBadge, syncSidebarControls } from './layout.js';
+import { initHealthBadge, syncSidebarControls, initReveal } from './layout.js';
 import { initAppearance, toggleLocale, toggleTheme } from './theme.js';
 import { setDocumentTitle } from './i18n.js';
 import { renderSimulate, mountSimulate } from './pages/simulate.js';
@@ -53,6 +53,7 @@ async function render() {
   await initHealthBadge();
   setDocumentTitle();
   syncSidebarControls();
+  initReveal();
 }
 
 function setupGlobalControls() {

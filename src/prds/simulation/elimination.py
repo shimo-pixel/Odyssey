@@ -106,8 +106,8 @@ def should_eliminate(
     if consecutive_negative_cashflow(agent, 4) and agent.resources.cash < MONTHLY_BURN_PER_HEAD * agent.resources.team_size * 2:
         return True, "长期失血导致现金见底"
     progress = compute_goal_progress(agent.resources, goal)
-    if world.period > world.total_periods * 0.6 and progress < 0.03 and runway < 2.0:
-        return True, "中后期仍远离目标且 runway 紧张"
+    if world.total_events > 0 and world.event_index > world.total_events * 0.6 and progress < 0.03 and runway < 2.0:
+        return True, "事件过半仍远离目标且 runway 紧张"
     if agent.resources.cash < -10:
         return True, "严重资不抵债"
     return False, None
