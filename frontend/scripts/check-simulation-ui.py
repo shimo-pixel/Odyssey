@@ -27,6 +27,8 @@ def main():
              'total_agents': 2, 'alive_agents': 2, 'model_info': {'model_id': 'b', 'model': 'beta'}}
     queued, captured, errors = [], [], []
     offline = False
+    held_models = []
+    hold_models = False
 
     def api(route):
         request = route.request
@@ -38,14 +40,24 @@ def main():
         elif path == '/api/config': body = {'llm_configured': True, 'max_steps': 200}
         elif path == '/api/kb/categories': body = []
         elif path == '/api/llm-models':
+            if hold_models:
+                held_models.append(route)
+                return
             body = {'default_model_id': 'a', 'models': [
                 {'id': 'a', 'name': 'Model A', 'model': 'alpha', 'provider': 'openai'},
                 {'id': 'b', 'name': 'Model B', 'model': 'beta', 'provider': 'openai'}]}
         elif path == '/api/simulations' and method == 'POST':
             captured.append(('create', request.post_data_json))
             body = {'simulation_id': 'run1', 'status': 'pending'}
-        elif path == '/api/simulations': body = {'simulations': []}
-        elif path == '/api/chat/sessions': body = {'sessions': []}
+        elif method == 'DELETE' and path.startswith('/api/simulations/'):
+            captured.append(('delete-simulation', path))
+        elif method == 'DELETE' and path.startswith('/api/chat/sessions/'):
+            captured.append(('delete-chat', path))
+        elif path == '/api/simulations': body = {'simulations': [
+            {'id': 'saved-run', 'simulation_id': 'saved-run', 'goal': 'Saved run',
+             'target_goal': {'description': 'Saved run'}, 'status': 'completed'}]}
+        elif path == '/api/chat/sessions': body = {'sessions': [
+            {'id': 'saved-chat', 'title': 'Saved chat'}]}
         elif path.endswith('/pause'):
             state.update(status='paused', can_pause=False)
         elif path.endswith('/resume'):
@@ -94,6 +106,36 @@ def main():
             page.add_init_script("window.PRDS_API_BASE = location.origin + '/api';")
             page.goto(origin + '/#simulate')
             expect(page.locator('#sim-model-label')).to_have_text('Model A')
+            # Keep sidebar, history rows and their scroll while switching entry pages.
+            page.evaluate("""() => {
+                window.originalSidebar = document.querySelector('.app-sidebar');
+                window.originalHistory = document.querySelector('#sb-history-list');
+                window.sidebarMutations = [];
+                new MutationObserver(records => {
+                    window.sidebarMutations.push(...records.map(r => r.type));
+                }).observe(window.originalHistory, {childList: true, subtree: true});
+            }""")
+            hold_models = True
+            for _ in range(3):
+                page.locator('.sb-new-run[href="#chat"]').click()
+                expect(page.locator('#chat-form.is-empty')).to_be_visible()
+                expect(page.locator('#sim-model-label')).to_have_text('Model A')
+                page.locator('.sb-new-run[href="#simulate"]').click()
+                expect(page.locator('#sim-form')).to_be_visible()
+                expect(page.locator('.simulate-hero')).to_have_css('opacity', '1')
+                expect(page.locator('#sim-model-label')).to_have_text('Model A')
+                assert page.evaluate("originalSidebar === document.querySelector('.app-sidebar')")
+                assert page.evaluate("originalHistory === document.querySelector('#sb-history-list')")
+            hold_models = False
+            for held in held_models:
+                held.fulfill(json={'default_model_id': 'a', 'models': [
+                    {'id': 'a', 'name': 'Model A', 'model': 'alpha', 'provider': 'openai'},
+                    {'id': 'b', 'name': 'Model B', 'model': 'beta', 'provider': 'openai'}]})
+            expect(page.locator('#sim-model-menu [data-model-id="b"]')).to_have_count(1)
+            assert page.evaluate('sidebarMutations.length') == 0
+            # A stale chat mount must not register listeners on the new page.
+            page.locator('#goal').fill('切换测试')
+            expect(page.locator('#start-btn')).to_be_enabled()
             page.locator('#sim-model-btn').click()
             page.locator('[data-model-id="b"]').click()
             page.locator('#goal').fill('一年内提高数学成绩')
@@ -163,6 +205,47 @@ def main():
             page.goto(origin + '/#simulate/completed')
             expect(page.locator('#results-root')).to_contain_text('Results generated; summary generation failed.')
             page.screenshot(path=str(output / 'simulation-result-warning.png'), full_page=True)
+            # Record close buttons use the app dialog, never window.confirm.
+            page.add_init_script("window.confirm = () => { throw new Error('Unexpected browser confirmation'); };")
+            page.evaluate("() => { window.confirm = () => { throw new Error('Unexpected browser confirmation'); }; }")
+            dialog = page.locator('dialog.confirm-dialog')
+            delete_run = page.locator('.sb-hist-delete[data-sim-id="saved-run"]')
+            delete_run.click()
+            expect(dialog).to_be_visible()
+            expect(dialog.locator('[value="cancel"]')).to_be_focused()
+            page.keyboard.press('Tab')
+            expect(dialog.locator('[value="confirm"]')).to_be_focused()
+            page.keyboard.press('Tab')
+            expect(dialog.locator('[value="cancel"]')).to_be_focused()
+            dialog.locator('[value="cancel"]').click()
+            expect(dialog).to_have_count(0)
+            expect(delete_run).to_be_focused()
+            assert not any(item[0] == 'delete-simulation' for item in captured)
+            delete_run.click()
+            page.keyboard.press('Escape')
+            expect(dialog).to_have_count(0)
+            delete_run.click()
+            page.mouse.click(5, 5)
+            expect(dialog).to_have_count(0)
+            delete_run.click()
+            dialog.locator('[value="confirm"]').click()
+            expect(dialog).to_have_count(0)
+            page.wait_for_timeout(200)
+            assert ('delete-simulation', '/api/simulations/saved-run') in captured
+            page.locator('.sb-chat-delete[data-chat-id="saved-chat"]').click()
+            expect(dialog).to_contain_text('Delete chat')
+            dialog.locator('[value="confirm"]').click()
+            page.wait_for_timeout(200)
+            assert ('delete-chat', '/api/chat/sessions/saved-chat') in captured
+            state.update(status='cancelled')
+            page.goto(origin + '/#simulate/run1')
+            page.locator('#run-delete').click()
+            expect(dialog).to_be_visible()
+            dialog.locator('[value="cancel"]').click()
+            page.locator('#run-delete').click()
+            dialog.locator('[value="confirm"]').click()
+            page.wait_for_url('**/#simulate')
+            assert ('delete-simulation', '/api/simulations/run1') in captured
             assert not errors, errors
             browser.close()
             print('Browser acceptance passed: model selection, pause, injection, resume, cancel, retry, interruption, missing record, reconnection, result warnings; no page errors.')

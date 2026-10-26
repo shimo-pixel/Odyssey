@@ -44,7 +44,8 @@ class Settings(BaseSettings):
     prds_kbsim_max_concurrent_branches: int = 8
     prds_kbsim_max_fork_bytes: int = 512 * 1024 * 1024
     prds_kbsim_reindex_every: int = 1
-    prds_kbsim_index_timeout_s: float = 300.0
+    # 0 means wait until indexing finishes, with no overall deadline.
+    prds_kbsim_index_timeout_s: float = 0.0
     prds_kbsim_retrieval_chars: int = 6000
     prds_kbsim_research: bool = False
     prds_kbsim_keep_branches: bool = True

@@ -1,3 +1,4 @@
+import { confirmDialog } from '../confirmDialog.js';
 import { API, buildPayload, getPhaseSteps, statusLabel, phaseLabel, TERMINAL_STATUSES, issueLabel } from '../api.js';
 import { pageShell, refreshSidebarNav } from '../layout.js';
 import { icon, spinner } from '../icons.js';
@@ -114,13 +115,13 @@ function chatComposerPanel() {
           <div class="sim-composer-bar-right">
             <div class="sim-picker-wrap sim-model-picker">
               <button type="button" id="sim-model-btn" class="sim-model-trigger" aria-haspopup="listbox" aria-expanded="false" aria-controls="sim-model-menu" title="${t('sim.modelSelect')}">
-                <span id="sim-model-label" class="sim-model-trigger-label">${t('sim.modelEmpty')}</span>
+                <span id="sim-model-label" class="sim-model-trigger-label">${escapeHtml(initialModelLabel())}</span>
                 <svg class="sim-model-chevron" width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
                   <path d="M3 8l3-3 3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
                 </svg>
               </button>
               <div id="sim-model-menu" class="sim-picker-menu sim-model-menu custom-scrollbar" hidden role="listbox" aria-label="${t('sim.modelSelect')}"></div>
-              <input type="hidden" id="sim-model-select" value="" />
+              <input type="hidden" id="sim-model-select" value="${escapeHtml(getPrefs().selectedModelId || '')}" />
             </div>
             <button type="submit" id="start-btn" class="sim-run-btn" disabled aria-label="${escapeHtml(startBtnLabel())}" title="${escapeHtml(startBtnLabel())}">
               ${startBtnHtml(false)}
@@ -184,13 +185,13 @@ function composerPanel() {
           <div class="sim-composer-bar-right">
             <div class="sim-picker-wrap sim-model-picker">
               <button type="button" id="sim-model-btn" class="sim-model-trigger" aria-haspopup="listbox" aria-expanded="false" aria-controls="sim-model-menu" title="${t('sim.modelSelect')}">
-                <span id="sim-model-label" class="sim-model-trigger-label">${t('sim.modelEmpty')}</span>
+                <span id="sim-model-label" class="sim-model-trigger-label">${escapeHtml(initialModelLabel())}</span>
                 <svg class="sim-model-chevron" width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
                   <path d="M3 8l3-3 3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
                 </svg>
               </button>
               <div id="sim-model-menu" class="sim-picker-menu sim-model-menu custom-scrollbar" hidden role="listbox" aria-label="${t('sim.modelSelect')}"></div>
-              <input type="hidden" id="sim-model-select" value="" />
+              <input type="hidden" id="sim-model-select" value="${escapeHtml(getPrefs().selectedModelId || '')}" />
             </div>
             <button type="submit" id="start-btn" class="sim-run-btn" disabled aria-label="${escapeHtml(startBtnLabel())}" title="${escapeHtml(startBtnLabel())}">
               ${startBtnHtml(false)}
@@ -205,14 +206,14 @@ function emptyWorkspaceHtml() {
   const phaseSteps = getPhaseSteps();
   return `
     <div class="sim-main-inner" id="sim-workspace-empty">
-      <section class="simulate-hero reveal" data-sim-panel="hero">
+      <section class="simulate-hero" data-sim-panel="hero">
         ${dismissBtn('hero')}
         <h1 class="hero-title">${t('sim.hero.title')}</h1>
         <p class="hero-desc">${t('sim.hero.desc')}</p>
         ${heroHighlights()}
       </section>
 
-      <section class="mt-8 reveal" data-sim-panel="pipeline">
+      <section class="mt-8" data-sim-panel="pipeline">
         <div class="sim-panel-head">
           <h2 class="text-ui-sm font-medium text-on-surface">${t('sim.pipeline')}</h2>
           ${dismissBtn('pipeline')}
@@ -222,7 +223,7 @@ function emptyWorkspaceHtml() {
         </div>
       </section>
 
-      <section class="mt-6 reveal" data-sim-panel="tip">
+      <section class="mt-6" data-sim-panel="tip">
         <div class="sim-tip-card">
           ${dismissBtn('tip')}
           <p class="sim-tip-body">${t('sim.tip.body')}</p>
@@ -347,7 +348,15 @@ async function loadKbDocuments(catId, catName) {
   }
 }
 
+function initialModelLabel() {
+  const model = modelCatalog.find(m => m.id === getPrefs().selectedModelId);
+  return model?.name || model?.model || t('sim.modelSelect');
+}
+
+let modelRefreshGeneration = 0;
+
 async function refreshModelSelect() {
+  const generation = ++modelRefreshGeneration;
   const hidden = document.getElementById('sim-model-select');
   const label = document.getElementById('sim-model-label');
   const menu = document.getElementById('sim-model-menu');
@@ -356,6 +365,7 @@ async function refreshModelSelect() {
   const prefs = getPrefs();
   try {
     const catalog = await API.listLlmModels();
+    if (!hidden.isConnected || generation !== modelRefreshGeneration) return;
     modelCatalog = catalog.models || [];
     const preferred = prefs.selectedModelId || catalog.default_model_id || '';
     let selectedId = preferred;
@@ -397,6 +407,7 @@ async function refreshModelSelect() {
         </button>`;
     }).join('');
   } catch {
+    if (!hidden.isConnected || generation !== modelRefreshGeneration) return;
     modelCatalog = [];
     hidden.value = '';
     label.textContent = t('sim.modelEmpty');
@@ -755,23 +766,6 @@ export async function mountChat(chatSessionIdParam = null) {
 
   setActiveMode('answer');
   void ensureChatRenderers().catch(() => {});
-  await refreshModelSelect();
-
-  if (chatSessionIdParam) {
-    // Avoid empty-hero jump while fetching an existing session.
-    form.classList.add('is-active');
-    form.classList.remove('is-empty');
-    try {
-      await loadChatSession(chatSessionIdParam, { loadGen });
-    } catch (e) {
-      if (loadGen !== chatLoadGen) return;
-      const thread = document.getElementById('sim-chat-thread');
-      if (thread) thread.innerHTML = `<p class="sim-chat-error">${escapeHtml(e.message || String(e))}</p>`;
-    }
-  } else {
-    renderChatThread();
-  }
-
   const onModelsChanged = () => { void refreshModelSelect(); };
   window.addEventListener('prds:llm-models-changed', onModelsChanged);
   form._prdsModelsHandler = onModelsChanged;
@@ -798,6 +792,26 @@ export async function mountChat(chatSessionIdParam = null) {
       }
     },
   });
+  await refreshModelSelect();
+  if (loadGen !== chatLoadGen || !form.isConnected) return;
+
+  if (chatSessionIdParam) {
+    // Avoid empty-hero jump while fetching an existing session.
+    form.classList.add('is-active');
+    form.classList.remove('is-empty');
+    try {
+      await loadChatSession(chatSessionIdParam, { loadGen });
+    } catch (e) {
+      if (loadGen !== chatLoadGen) return;
+      const thread = document.getElementById('sim-chat-thread');
+      if (thread) thread.innerHTML = `<p class="sim-chat-error">${escapeHtml(e.message || String(e))}</p>`;
+    }
+  } else {
+    renderChatThread();
+  }
+  if (loadGen !== chatLoadGen || !form.isConnected) return;
+
+
 }
 
 export function unmountChat() {
@@ -1018,7 +1032,7 @@ async function loadRunIntoWorkspace(simId) {
       'run-cancel': () => API.cancelSimulation(simId),
       'run-clear-events': async () => { await API.clearUserEvents(simId); await refreshEvents(); },
       'run-delete': async () => {
-        if (!confirm(t('sidebar.deleteConfirm'))) return;
+        if (!await confirmDialog({ title: t('run.delete'), message: t('sidebar.deleteConfirm'), confirmLabel: t('run.delete') })) return;
         await API.deleteSimulation(simId);
         if (current()) { location.hash = '#simulate'; void refreshSidebarNav({ simId: null }); }
       },
@@ -1148,9 +1162,7 @@ export async function mountSimulate(simId = null) {
   const generation = runLoadGen;
   selectedKbIds = new Set();
 
-  await loadKbCategories();
-  if (generation !== runLoadGen) return;
-  await refreshModelSelect();
+  await Promise.all([loadKbCategories(), refreshModelSelect()]);
   if (generation !== runLoadGen) return;
 
   const preferred = sessionStorage.getItem('prds_sim_mode');

@@ -1,4 +1,4 @@
-import { initHealthBadge, syncSidebarControls, initReveal, refreshSidebarNav, initSidebarHistoryActions, setSidebarActiveSelection } from './layout.js';
+import { initHealthBadge, syncSidebarControls, refreshSidebarNav, initSidebarHistoryActions, setSidebarActiveSelection } from './layout.js';
 import { initAppearance, toggleLocale, toggleTheme } from './theme.js';
 import { setDocumentTitle } from './i18n.js';
 import { renderSimulate, mountSimulate, unmountSimulate, renderChat, mountChat, unmountChat, switchChatSession } from './pages/simulate.js';
@@ -26,8 +26,24 @@ function rememberPreSettingsHash() {
 }
 
 let activeRoute = { page: null, id: null };
+let renderGeneration = 0;
 
-async function render() {
+function replacePage(html, rebuildShell) {
+  const sidebar = app.querySelector('.app-sidebar');
+  const main = app.querySelector('.app-main');
+  if (rebuildShell || !sidebar || !main) {
+    app.innerHTML = html;
+    return;
+  }
+  const template = document.createElement('template');
+  template.innerHTML = html;
+  // Keep sidebar nodes, list contents and scroll position across navigation.
+  main.replaceWith(template.content.querySelector('.app-main'));
+}
+
+async function render({ rebuildShell = false } = {}) {
+  const generation = ++renderGeneration;
+  const current = () => generation === renderGeneration;
   const { page, id } = parseRoute();
 
   // Settings / model open as modal — keep underlying page
@@ -43,6 +59,7 @@ async function render() {
     }
     openSettingsModal({ tab });
     await initHealthBadge();
+    if (!current()) return;
     setDocumentTitle();
     syncSidebarControls();
     return;
@@ -56,7 +73,7 @@ async function render() {
   }
 
   // Soft-switch between chat sessions: keep sidebar mounted to avoid jump/flicker.
-  if (page === 'chat' && activeRoute.page === 'chat' && document.getElementById('chat-form')) {
+  if (!rebuildShell && page === 'chat' && activeRoute.page === 'chat' && document.getElementById('chat-form')) {
     const targetId = id || null;
     const loadedId = (document.getElementById('chat-form')?.dataset.chatId || '').trim() || null;
     // Compare against the loaded session, not only activeRoute — replaceState can update
@@ -69,6 +86,7 @@ async function render() {
     activeRoute = { page: 'chat', id: targetId };
     setSidebarActiveSelection({ chatId: id, page: 'chat' });
     await switchChatSession(id);
+    if (!current()) return;
     setDocumentTitle();
     syncSidebarControls();
     return;
@@ -85,6 +103,16 @@ async function render() {
       ? { simId: id, chatId: null }
       : { simId: null, chatId: null };
 
+  const switchingNewPages = !rebuildShell && !id && !activeRoute.id
+    && ['chat', 'simulate'].includes(page)
+    && ['chat', 'simulate'].includes(activeRoute.page);
+  const showPage = html => {
+    replacePage(html, rebuildShell);
+    activeRoute = { page, id: id || null };
+    setSidebarActiveSelection({ ...sidebarCtx, page });
+    if (!switchingNewPages) void refreshSidebarNav(sidebarCtx);
+  };
+
   switch (page) {
     case 'history':
       location.hash = id ? `#simulate/${id}` : '#simulate';
@@ -96,13 +124,11 @@ async function render() {
       location.hash = id ? `#simulate/${id}` : '#simulate';
       return;
     case 'kb':
-      app.innerHTML = renderKb(id);
-      void refreshSidebarNav(sidebarCtx);
+      showPage(renderKb(id));
       await mountKb(id);
       break;
     case 'chat':
-      app.innerHTML = renderChat(id);
-      void refreshSidebarNav(sidebarCtx);
+      showPage(renderChat(id));
       await mountChat(id);
       break;
     case 'knowledge':
@@ -110,16 +136,15 @@ async function render() {
       return;
     case 'simulate':
     default:
-      app.innerHTML = renderSimulate(id);
-      void refreshSidebarNav(sidebarCtx);
+      showPage(renderSimulate(id));
       await mountSimulate(id);
       break;
   }
-  activeRoute = { page, id: id || null };
+  if (!current()) return;
   await initHealthBadge();
+  if (!current()) return;
   setDocumentTitle();
   syncSidebarControls();
-  initReveal();
 
   const pendingTab = sessionStorage.getItem('prds_open_settings_tab');
   if (pendingTab) {
@@ -152,7 +177,7 @@ function setupGlobalControls() {
       syncSidebarControls();
       return;
     }
-    render();
+    render({ rebuildShell: true });
   });
 }
 

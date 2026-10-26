@@ -224,18 +224,20 @@ class LightRAGClient:
         track_id: str,
         *,
         workspace: str | None = None,
-        timeout: float = 300.0,
+        timeout: float | None = 300.0,
         poll_interval: float = 0.6,
     ) -> bool:
         """Poll a track id until every document reaches a terminal status.
 
         Returns True only when every document was processed successfully.
+        A timeout of None or <= 0 disables the overall wait limit.
         """
-        deadline = asyncio.get_running_loop().time() + timeout
+        deadline = (asyncio.get_running_loop().time() + timeout
+                    if timeout is not None and timeout > 0 else None)
         delay = poll_interval
-        while asyncio.get_running_loop().time() < deadline:
-            remaining = deadline - asyncio.get_running_loop().time()
-            async with asyncio.timeout(max(0.001, remaining)):
+        while deadline is None or asyncio.get_running_loop().time() < deadline:
+            remaining = max(0.001, deadline - asyncio.get_running_loop().time()) if deadline is not None else None
+            async with asyncio.timeout(remaining):
                 data = await self.track_status(track_id, workspace=workspace)
             documents = data.get("documents") if isinstance(data, dict) else None
             if isinstance(documents, list) and documents:
@@ -264,7 +266,7 @@ class LightRAGClient:
         *,
         workspace: str,
         wait: bool = True,
-        timeout: float = 300.0,
+        timeout: float | None = 300.0,
     ) -> bool:
         """Delete the previous revision of ``file_source`` then insert a new one.
 
@@ -272,6 +274,8 @@ class LightRAGClient:
         that document contributed, which is how a branch's stale state is
         pruned from the graph while the original uploads stay untouched.
         """
+        # Disable both the replacement deadline and its nested indexing deadline.
+        timeout = timeout if timeout is not None and timeout > 0 else None
         async with asyncio.timeout(timeout):
             doc_id = doc_id_for_source(file_source)
             for attempt in range(3):

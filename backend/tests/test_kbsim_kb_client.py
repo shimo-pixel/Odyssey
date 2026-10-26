@@ -1,8 +1,10 @@
 """LightRAG client behaviour the branch pipeline depends on."""
 
 import hashlib
+import asyncio
 import json
 import sys
+from types import SimpleNamespace
 from pathlib import Path
 
 import httpx
@@ -172,3 +174,55 @@ async def test_wait_indexed_returns_false_on_timeout():
         "t3", workspace="ws", timeout=0.05, poll_interval=0.01
     )
     assert ok is False
+
+
+@pytest.mark.parametrize('timeout', [0, None])
+async def test_unlimited_replacement_waits_past_old_deadline(monkeypatch, timeout):
+    import prds.kb.client as client_module
+
+    elapsed = 0.0
+    polls = 0
+    deadlines = []
+
+    async def sleep(_delay):
+        nonlocal elapsed
+        elapsed += 301
+
+    def record_timeout(delay):
+        deadlines.append(delay)
+        return asyncio.timeout(delay)
+
+    monkeypatch.setattr(client_module, 'asyncio', SimpleNamespace(
+        get_running_loop=lambda: SimpleNamespace(time=lambda: elapsed),
+        timeout=record_timeout, sleep=sleep,
+    ))
+
+    def handler(request):
+        nonlocal polls
+        if request.url.path == '/documents/delete_document':
+            return httpx.Response(200, json={'status': 'ok'})
+        if request.url.path == '/documents/text':
+            return httpx.Response(200, json={'track_id': 'slow-index'})
+        polls += 1
+        status = 'processed' if polls == 3 else 'processing'
+        return httpx.Response(200, json={'documents': [{'status': status}]})
+
+    assert await _client(handler).replace_document(
+        'snapshot', 'state.md', workspace='branch', timeout=timeout,
+    )
+    assert elapsed == 602
+    assert deadlines == [None, None, None, None]
+
+
+async def test_unlimited_indexing_can_still_be_cancelled():
+    polled = asyncio.Event()
+
+    def handler(request):
+        polled.set()
+        return httpx.Response(200, json={'documents': [{'status': 'processing'}]})
+
+    task = asyncio.create_task(_client(handler).wait_indexed('slow-index', timeout=0))
+    await polled.wait()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task

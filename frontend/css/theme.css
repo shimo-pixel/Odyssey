@@ -3281,6 +3281,58 @@ input[type="range"] {
   accent-color: var(--g-blue);
 }
 
+/* Record deletion confirmation */
+.confirm-dialog {
+  width: min(420px, calc(100vw - 2rem));
+  max-height: calc(100dvh - 2rem);
+  overflow-y: auto;
+  padding: 1.5rem;
+  color: var(--md-on-surface);
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius-xl);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.2);
+}
+.confirm-dialog::backdrop {
+  background: rgba(32, 33, 36, 0.45);
+  backdrop-filter: blur(2px);
+}
+.confirm-dialog-title {
+  margin: 0 0 0.75rem;
+  font-size: 1.125rem;
+  font-weight: 600;
+}
+.confirm-dialog-message {
+  color: var(--md-on-surface-variant);
+  font-size: 0.875rem;
+  line-height: 1.7;
+}
+.confirm-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  margin-top: 1.5rem;
+}
+.confirm-dialog-actions button {
+  min-height: 40px;
+  padding: 0.5rem 1rem;
+  border-radius: var(--radius-md);
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+.confirm-dialog-cancel {
+  border: 1px solid var(--panel-border);
+  background: var(--md-surface-container);
+}
+.confirm-dialog-submit {
+  color: #fff;
+  background: #b3261e;
+}
+.confirm-dialog-actions button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
 /* Settings modal */
 body.settings-modal-open {
   overflow: hidden;

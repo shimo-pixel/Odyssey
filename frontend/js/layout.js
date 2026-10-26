@@ -1,3 +1,4 @@
+import { confirmDialog } from './confirmDialog.js';
 import { t } from './i18n.js';
 import { getPrefs } from './prefs.js';
 import { icon } from './icons.js';
@@ -324,7 +325,7 @@ export function initSidebarHistoryActions() {
       e.stopPropagation();
       const chatId = chatBtn.dataset.chatId;
       if (!chatId) return;
-      if (!confirm(t('sidebar.deleteChatConfirm'))) return;
+      if (!await confirmDialog({ title: t('sidebar.deleteChat'), message: t('sidebar.deleteChatConfirm'), confirmLabel: t('sidebar.deleteChat') })) return;
       chatBtn.disabled = true;
       try {
         await API.deleteChatSession(chatId);
@@ -353,7 +354,7 @@ export function initSidebarHistoryActions() {
     e.stopPropagation();
     const simId = btn.dataset.simId;
     if (!simId) return;
-    if (!confirm(t('sidebar.deleteConfirm'))) return;
+    if (!await confirmDialog({ title: t('run.delete'), message: t('sidebar.deleteConfirm'), confirmLabel: t('run.delete') })) return;
 
     btn.disabled = true;
     try {
