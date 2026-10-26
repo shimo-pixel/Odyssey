@@ -19,4 +19,4 @@ fi
 
 echo "Frontend: http://localhost:3000"
 echo "API expected at: http://localhost:8000/api (override via window.PRDS_API_BASE)"
-exec python3 -m http.server 3000
+exec python3 -m http.server 3000 --bind 127.0.0.1

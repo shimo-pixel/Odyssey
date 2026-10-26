@@ -41,12 +41,16 @@ from prds.models.domain import (
     SimulationInput,
     SimulationPhase,
     SimulationResult,
+    SimulationIssue,
+    StrategySynthesis,
     StateTraceEntry,
     StrategyOption,
     TargetGoal,
     WorldBackground,
 )
 from prds.simulation.control import get_control
+from prds.simulation.tasks import gather_owned
+from prds.simulation.errors import SimulationFailure
 
 logger = logging.getLogger(__name__)
 
@@ -83,6 +87,8 @@ class KbSimOrchestrator:
         goal = simulation_input.goal
         control = get_control()
         model = config.llm_model or None
+        warnings: list[SimulationIssue] = []
+        self.warnings = warnings
         analysis_model = config.llm_model_analysis or self.llm.analysis_model
 
         branch_count = max(1, config.agent_count)
@@ -99,7 +105,10 @@ class KbSimOrchestrator:
             try:
                 kb_context = await self.kb.query_contexts(goal.description, source_ids)
             except Exception as exc:
-                logger.warning("Initial KB retrieval failed: %s", exc)
+                raise SimulationFailure("retrieval") from exc
+        if not kb_context.strip():
+            warnings.append(SimulationIssue(code="insufficient_material", stage="intake"))
+            await phase(SimulationPhase.INTAKE, {"warnings": warnings})
         brief = await build_intake_brief(
             self.llm, goal=goal, current_state=current_state, kb_context=kb_context
         )
@@ -144,10 +153,11 @@ class KbSimOrchestrator:
         comparisons: list[EventComparison] = []
 
         # ---------- timeline ----------
-        await phase(SimulationPhase.BRANCH_SIM)
+        await phase(SimulationPhase.BRANCH_SIM, {"total_events": total_events})
         for event_index, event in enumerate(events, start=1):
+            control.set_can_pause(simulation_id, event_index < total_events)
             injected = control.pop_user_events(simulation_id, event_index)
-            comparison = await self._advance_event(
+            comparison = await self._event_step(event_index, self._advance_event(
                 manager=manager,
                 branches=branches,
                 states=states,
@@ -160,7 +170,7 @@ class KbSimOrchestrator:
                 brief=brief,
                 model=model,
                 analysis_model=analysis_model,
-            )
+            ))
             comparisons.append(comparison)
 
             if on_event:
@@ -182,14 +192,15 @@ class KbSimOrchestrator:
         distribution = build_distribution(states, specs)
 
         await phase(SimulationPhase.SYNTHESIS)
-        synthesis, counterfactuals = await build_synthesis(
-            self.llm,
-            goal=goal,
-            trace=trace,
-            summaries=summaries,
-            specs=specs,
-            model=analysis_model,
-        )
+        try:
+            synthesis, counterfactuals = await build_synthesis(
+                self.llm, goal=goal, trace=trace, summaries=summaries,
+                specs=specs, model=analysis_model,
+            )
+        except Exception:
+            synthesis, counterfactuals = StrategySynthesis(), []
+            warnings.append(SimulationIssue(code="synthesis_failed", stage="synthesis"))
+            await phase(SimulationPhase.SYNTHESIS, {"warnings": warnings})
 
         if not self.settings.prds_kbsim_keep_branches:
             await phase(SimulationPhase.CLEANUP)
@@ -200,6 +211,7 @@ class KbSimOrchestrator:
         champion = summaries[0].branch_id if summaries else ""
         return SimulationResult(
             simulation_id=simulation_id,
+            warnings=warnings,
             domain_id=config.domain_id,
             agent_count=len(branches),
             events_simulated=total_events,
@@ -231,6 +243,15 @@ class KbSimOrchestrator:
 
     # ------------------------------------------------------------------
 
+    async def _event_step(self, index, work):
+        try:
+            return await work
+        except SimulationFailure as exc:
+            exc.issue.event_index = index
+            raise
+        except Exception as exc:
+            raise SimulationFailure("branch_sim", event_index=index) from exc
+
     async def _advance_event(
         self,
         *,
@@ -250,21 +271,27 @@ class KbSimOrchestrator:
         """One event across every branch: retrieve, decide, predict, write back."""
         batch = [event, *extra_events]
         query = self._retrieval_query(batch, goal)
-        hl, ll = event_keywords(event, brief)
+        keywords = [event_keywords(item, brief) for item in batch]
+        hl = list(dict.fromkeys(k for high, _ in keywords for k in high))
+        ll = list(dict.fromkeys(k for _, low in keywords for k in low))
 
         # Retrieval for all branches in parallel; keywords are computed once so
         # LightRAG can skip its own keyword-extraction call per branch.
-        retrieved = await asyncio.gather(
+        retrieved = await gather_owned(
             *(
                 manager.retrieve(branch, query, hl_keywords=hl, ll_keywords=ll)
                 for branch in branches
             ),
-            return_exceptions=True,
         )
         contexts = {
-            branch.branch_id: ("" if isinstance(ctx, BaseException) else ctx)
+            branch.branch_id: ctx
             for branch, ctx in zip(branches, retrieved)
         }
+
+        for branch in branches:
+            if not contexts[branch.branch_id].strip():
+                self.warnings.append(SimulationIssue(code="insufficient_material", stage="retrieval",
+                    branch_id=branch.branch_id, event_index=event_index))
 
         strategies = await generate_strategies(
             self.llm,
@@ -275,16 +302,18 @@ class KbSimOrchestrator:
             branches=branches,
             metric_specs=brief.metric_specs,
             contexts=contexts,
+            extra_events=extra_events,
             last_states=states,
             model=analysis_model,
         )
 
-        predictions = await asyncio.gather(
+        predictions = await gather_owned(
             *(
                 predict_state(
                     self.llm,
                     branch=branch,
                     event=event,
+                    extra_events=extra_events,
                     event_index=event_index,
                     total_events=total_events,
                     strategy=strategies[branch.branch_id],
@@ -306,6 +335,7 @@ class KbSimOrchestrator:
                 StateTraceEntry(
                     event_index=event_index,
                     event_id=event.event_id,
+                    events=batch,
                     branch_id=branch.branch_id,
                     strategy=strategy,
                     state=prediction,
@@ -320,18 +350,18 @@ class KbSimOrchestrator:
                     branch=branch,
                     goal=goal,
                     event=event,
+                    extra_events=extra_events,
                     event_index=event_index,
                     strategy=strategies[branch.branch_id],
                     state=states[branch.branch_id],
                 )
                 for branch in branches
             ]
-            await asyncio.gather(
+            await gather_owned(
                 *(
                     manager.write_state(branch, snapshot)
                     for branch, snapshot in zip(branches, snapshots)
-                ),
-                return_exceptions=True,
+                )
             )
 
         return EventComparison(
@@ -342,6 +372,8 @@ class KbSimOrchestrator:
             events=[e.event_type for e in batch],
             event_summaries=[
                 EventSummary(
+                    event_id=e.event_id,
+                    severity=e.severity,
                     event_type=e.event_type,
                     description=e.description,
                     impact=e.impact,

@@ -55,6 +55,9 @@ class KbDocumentOut(BaseModel):
     doc_id: str | None = None
     status: str = "pending"
     size: int = 0
+    progress_pct: int | None = None
+    progress_is_estimated: bool = True
+    processing_stage: str = "pending"
     error: str | None = None
     has_content: bool = False
     created_at: str | None = None
@@ -154,7 +157,19 @@ def _rm_category_dir(category_id: str) -> None:
         shutil.rmtree(folder, ignore_errors=True)
 
 
+def _document_progress(status: str) -> tuple[int | None, bool]:
+    """Stage estimates, not elapsed-time or page completion measurements."""
+    status = status.lower()
+    if status in {"processed", "completed", "finished"}:
+        return 100, False
+    if status in {"failed", "error"}:
+        return None, False
+    return {"pending": 0, "uploaded": 0, "success": 0, "queued": 0, "parsing": 15,
+            "analyzing": 40, "preprocessed": 55, "processing": 65}.get(status), True
+
+
 def _doc_out(row: KbDocument) -> KbDocumentOut:
+    progress, estimated = _document_progress(row.status)
     return KbDocumentOut(
         id=row.id,
         category_id=row.category_id or "",
@@ -162,6 +177,9 @@ def _doc_out(row: KbDocument) -> KbDocumentOut:
         track_id=row.track_id,
         doc_id=row.doc_id,
         status=row.status,
+        progress_pct=progress,
+        progress_is_estimated=estimated,
+        processing_stage=row.status,
         size=row.size,
         error=row.error,
         has_content=_resolve_storage_file(row.storage_path) is not None,
@@ -213,8 +231,13 @@ async def _refresh_remote_statuses(
 
     now = datetime.now(timezone.utc)
     for row in rows:
-        if row.doc_id and row.doc_id in remote_by_id:
-            remote = remote_by_id[row.doc_id]
+        remote = remote_by_id.get(row.doc_id or "")
+        if remote is None and row.track_id:
+            matches = [doc for doc in remote_by_id.values() if doc.get("track_id") == row.track_id]
+            if len(matches) == 1:
+                remote = matches[0]
+                row.doc_id = str(remote.get("id") or remote.get("doc_id"))
+        if remote is not None:
             new_status = str(remote.get("status") or row.status)
             if new_status != row.status:
                 row.status = new_status

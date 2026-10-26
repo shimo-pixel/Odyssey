@@ -183,7 +183,7 @@ async def test_intake_brief_reads_metrics_from_the_knowledge_base():
     assert spec.name and spec.target != spec.baseline
 
 
-async def test_intake_brief_falls_back_to_declared_metrics(monkeypatch):
+async def test_intake_brief_rejects_missing_required_outputs(monkeypatch):
     llm = LLMClient(_settings())
 
     async def blank(system, user, model_class, model=None):
@@ -191,14 +191,10 @@ async def test_intake_brief_falls_back_to_declared_metrics(monkeypatch):
 
     monkeypatch.setattr(llm, "structured_complete", blank)
 
-    brief = await build_intake_brief(
-        llm,
-        goal=TargetGoal(description="提升数学", success_metrics={"数学成绩": 78}),
-        current_state=CurrentState(background="现状", constraints=["时间有限"]),
-        kb_context="",
-    )
-
-    assert brief.background == "现状"
-    assert brief.constraints == ["时间有限"]
-    assert [s.name for s in brief.metric_specs] == ["数学成绩"]
-    assert brief.metric_specs[0].target == 78.0
+    with pytest.raises(ValueError):
+        await build_intake_brief(
+            llm,
+            goal=TargetGoal(description="提升数学", success_metrics={"数学成绩": 78}),
+            current_state=CurrentState(background="现状", constraints=["时间有限"]),
+            kb_context="",
+        )

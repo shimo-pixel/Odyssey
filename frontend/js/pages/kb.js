@@ -10,6 +10,8 @@ let activeTab = 'files';
 let graphLoadedFor = null;
 let previewObjectUrl = null;
 let themeSyncHandler = null;
+let createModalCleanup = null;
+let previewModalCleanup = null;
 
 const TEXT_EXTS = new Set([
   'txt', 'md', 'markdown', 'json', 'csv', 'tsv', 'log', 'xml', 'html', 'htm', 'yml', 'yaml', 'py', 'js', 'ts', 'css',
@@ -154,11 +156,25 @@ async function refreshCategories() {
   }
 }
 
+function documentProgress(doc) {
+  const stage = doc.processing_stage || doc.status || 'pending';
+  const key = `kb.stage.${stage}`;
+  const label = t(key) === key ? stage : t(key);
+  const value = Number.isFinite(doc.progress_pct) ? Math.max(0, Math.min(100, doc.progress_pct)) : null;
+  return `<div class="kb-document-progress">
+    <div class="kb-document-progress-label"><span>${escapeHtml(label)}</span>
+      <span>${value === null ? '—' : `${value}%`}</span></div>
+    ${value === null ? '' : `<progress class="run-progress" max="100" value="${value}" aria-label="${escapeHtml(t('kb.processingProgress'))}"></progress>`}
+    ${doc.progress_is_estimated && value !== null ? `<p class="kb-progress-note">${t('kb.stageEstimate')}</p>` : ''}
+  </div>`;
+}
+
 async function refreshFiles(categoryId) {
   const grid = document.getElementById('kb-file-grid');
   if (!grid) return;
   try {
     const docs = await API.listKbDocuments(categoryId);
+    if (!grid.isConnected || activeCategoryId !== categoryId) return;
     if (!docs.length) {
       grid.innerHTML = `<div class="glass-panel rounded-lg p-8 text-center text-on-surface-variant text-sm col-span-full">${t('kb.empty')}</div>`;
       return;
@@ -168,13 +184,14 @@ async function refreshFiles(categoryId) {
         <button type="button" class="kb-card-body" data-open-doc="${escapeHtml(d.id)}" data-filename="${escapeHtml(d.filename)}" data-has-content="${d.has_content ? '1' : '0'}">
           <div class="flex items-start justify-between gap-2 mb-2">
             <h3 class="font-medium text-sm text-on-surface break-all text-left" title="${escapeHtml(d.filename)}">${escapeHtml(d.filename)}</h3>
-            <span class="text-[10px] font-medium px-2 py-0.5 rounded-md ${statusChipClass(d.status)} shrink-0">${escapeHtml(d.status || '—')}</span>
+            <span class="text-[10px] font-medium px-2 py-0.5 rounded-md ${statusChipClass(d.status)} shrink-0">${escapeHtml(t(`kb.stage.${d.status}`) === `kb.stage.${d.status}` ? d.status || '—' : t(`kb.stage.${d.status}`))}</span>
           </div>
           <div class="text-xs text-on-surface-variant flex justify-between gap-2">
             <span>${formatSize(d.size)}</span>
             <span>${formatTime(d.created_at)}</span>
           </div>
         </button>
+        ${documentProgress(d)}
         <button type="button" data-del="${escapeHtml(d.id)}" class="kb-card-delete" aria-label="${t('kb.delete')}">${t('kb.delete')}</button>
       </div>
     `).join('');
@@ -250,9 +267,45 @@ function switchTab(tab, categoryId) {
   }
 }
 
+function bindModal(overlay, close) {
+  const previousFocus = document.activeElement;
+  document.body.classList.add('kb-dialog-open');
+  const onKeydown = (event) => {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      close();
+    } else if (event.key === 'Tab') {
+      const nodes = [...overlay.querySelectorAll('button, input, textarea, select, a[href], [tabindex="0"]')]
+        .filter(node => !node.disabled && node.getClientRects().length);
+      const first = nodes[0], last = nodes[nodes.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault(); last?.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault(); first?.focus();
+      }
+    }
+  };
+  document.addEventListener('keydown', onKeydown);
+  return () => {
+    document.removeEventListener('keydown', onKeydown);
+    if (!document.querySelector('#kb-create-overlay, #kb-preview-overlay')) {
+      document.body.classList.remove('kb-dialog-open');
+    }
+    if (previousFocus?.isConnected) previousFocus.focus();
+  };
+}
+
+function closeCreateCategoryModal() {
+  document.getElementById('kb-create-overlay')?.remove();
+  createModalCleanup?.();
+  createModalCleanup = null;
+}
+
 function closeFilePreview() {
   revokePreviewUrl();
   document.getElementById('kb-preview-overlay')?.remove();
+  previewModalCleanup?.();
+  previewModalCleanup = null;
 }
 
 async function openFilePreview(docId, filename, categoryId, hasContent) {
@@ -266,10 +319,10 @@ async function openFilePreview(docId, filename, categoryId, hasContent) {
   overlay.id = 'kb-preview-overlay';
   overlay.className = 'refine-overlay';
   overlay.innerHTML = `
-    <div class="refine-modal kb-preview-modal custom-scrollbar" role="dialog" aria-modal="true">
+    <div class="refine-modal kb-preview-modal custom-scrollbar" role="dialog" aria-modal="true" aria-labelledby="kb-preview-title">
       <div class="refine-modal-head">
         <div class="min-w-0">
-          <h2 class="text-lg font-semibold text-on-surface truncate">${escapeHtml(filename)}</h2>
+          <h2 id="kb-preview-title" class="text-lg font-semibold text-on-surface truncate">${escapeHtml(filename)}</h2>
           <p class="text-xs text-on-surface-variant mt-1">${t('kb.previewTitle')}</p>
         </div>
         <div class="flex items-center gap-2 shrink-0">
@@ -286,6 +339,8 @@ async function openFilePreview(docId, filename, categoryId, hasContent) {
   document.body.appendChild(overlay);
 
   const close = () => closeFilePreview();
+  previewModalCleanup = bindModal(overlay, close);
+  document.getElementById('kb-preview-close')?.focus();
   overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
   document.getElementById('kb-preview-close')?.addEventListener('click', close);
 
@@ -295,6 +350,7 @@ async function openFilePreview(docId, filename, categoryId, hasContent) {
   try {
     const res = await API.getKbDocumentContent(docId, categoryId);
     const blob = await res.blob();
+    if (!overlay.isConnected) return;
     const type = (res.headers.get('content-type') || blob.type || '').split(';')[0].trim().toLowerCase();
     previewObjectUrl = URL.createObjectURL(blob);
     if (dl) {
@@ -311,6 +367,7 @@ async function openFilePreview(docId, filename, categoryId, hasContent) {
 
     if (isText) {
       const text = await blob.text();
+      if (!overlay.isConnected) return;
       body.innerHTML = `<pre class="kb-preview-pre">${escapeHtml(text)}</pre>`;
     } else if (isPdf) {
       body.innerHTML = `<iframe class="kb-preview-pdf" title="${escapeHtml(filename)}" src="${previewObjectUrl}"></iframe>`;
@@ -356,19 +413,20 @@ export function unmountKb() {
   activeCategoryId = null;
   activeTab = 'files';
   graphLoadedFor = null;
+  closeCreateCategoryModal();
   closeFilePreview();
 }
 
 function openCreateCategoryModal() {
-  document.getElementById('kb-create-overlay')?.remove();
+  closeCreateCategoryModal();
   const overlay = document.createElement('div');
   overlay.id = 'kb-create-overlay';
   overlay.className = 'refine-overlay';
   overlay.innerHTML = `
-    <div class="refine-modal custom-scrollbar" role="dialog" aria-modal="true" style="max-width:28rem">
+    <div class="refine-modal custom-scrollbar" role="dialog" aria-modal="true" aria-labelledby="kb-create-title" style="max-width:28rem">
       <div class="refine-modal-head">
         <div>
-          <h2 class="text-lg font-semibold text-on-surface">${t('kb.newCategory')}</h2>
+          <h2 id="kb-create-title" class="text-lg font-semibold text-on-surface">${t('kb.newCategory')}</h2>
           <p class="text-xs text-on-surface-variant mt-1">${t('kb.newCategoryHint')}</p>
         </div>
         <button type="button" id="kb-create-close" class="refine-icon-btn" aria-label="${t('common.close')}">
@@ -394,7 +452,8 @@ function openCreateCategoryModal() {
     </div>`;
   document.body.appendChild(overlay);
 
-  const close = () => overlay.remove();
+  const close = () => closeCreateCategoryModal();
+  createModalCleanup = bindModal(overlay, close);
   overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
   document.getElementById('kb-create-close')?.addEventListener('click', close);
   document.getElementById('kb-create-cancel')?.addEventListener('click', close);
@@ -411,6 +470,7 @@ function openCreateCategoryModal() {
     if (btn) btn.disabled = true;
     try {
       const cat = await API.createKbCategory({ name, description });
+      if (!overlay.isConnected) return;
       close();
       location.hash = `#kb/${encodeURIComponent(cat.id)}`;
     } catch (e) {
@@ -506,11 +566,12 @@ async function mountCategoryDetail(categoryId) {
   };
   window.addEventListener('prds:prefs-changed', themeSyncHandler);
 
-  pollTimer = setInterval(() => {
-    if (activeCategoryId === categoryId && activeTab === 'files') {
-      refreshFiles(categoryId);
-    }
-  }, 5000);
+  let refreshing = false;
+  pollTimer = setInterval(async () => {
+    if (activeCategoryId !== categoryId || activeTab !== 'files' || refreshing) return;
+    refreshing = true;
+    try { await refreshFiles(categoryId); } finally { refreshing = false; }
+  }, 2000);
 }
 
 export async function mountKb(categoryId = null) {

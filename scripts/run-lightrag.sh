@@ -24,7 +24,7 @@ if [[ ! -f "$WORKDIR/.env" ]]; then
   cat >> "$WORKDIR/.env" <<EOF
 
 # --- Odyssey overrides ---
-HOST=0.0.0.0
+HOST=127.0.0.1
 PORT=9621
 INPUT_DIR=$WORKDIR/inputs
 WORKING_DIR=$WORKDIR/rag_storage
@@ -41,7 +41,7 @@ workdir = Path(sys.argv[1])
 p = workdir / ".env"
 text = p.read_text(encoding="utf-8") if p.exists() else ""
 updates = {
-    "HOST": "0.0.0.0",
+    "HOST": "127.0.0.1",
     "PORT": "9621",
     "INPUT_DIR": str(workdir / "inputs"),
     "WORKING_DIR": str(workdir / "rag_storage"),
@@ -100,4 +100,23 @@ PY
 echo "LightRAG: http://localhost:9621  (proxied via Odyssey as /lightrag)"
 echo "Working dir: $WORKDIR"
 cd "$WORKDIR"
-exec "$SERVER"
+# Merge file-level proxy bypasses with the caller's environment. Other settings
+# retain LightRAG's normal .env loading behavior.
+exec python3 - "$SERVER" <<'PY_LAUNCH'
+import os
+import sys
+from pathlib import Path
+config = {}
+for line in Path(".env").read_text(encoding="utf-8").splitlines():
+    key, sep, value = line.partition("=")
+    if sep and key.strip() in {"NO_PROXY", "no_proxy"}:
+        config[key.strip()] = value.strip().strip(chr(34) + chr(39))
+entries = ",".join(str(value or "") for value in (
+    os.environ.get("NO_PROXY"), os.environ.get("no_proxy"),
+    config.get("NO_PROXY"), config.get("no_proxy"),
+))
+if entries.strip(","):
+    bypass = ",".join(dict.fromkeys(x.strip() for x in entries.split(",") if x.strip()))
+    os.environ["NO_PROXY"] = os.environ["no_proxy"] = bypass
+os.execv(sys.argv[1], [sys.argv[1]])
+PY_LAUNCH

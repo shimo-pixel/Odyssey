@@ -2,13 +2,14 @@ import asyncio
 import uuid
 from dataclasses import dataclass, field
 
-from prds.models.domain import Event, EventCategory, UserEventInput
+from prds.models.domain import Event, UserEventInput
 
 
 @dataclass
 class RunControlState:
     pause_requested: bool = False
     paused: bool = False
+    can_pause: bool = True
     resume_event: asyncio.Event = field(default_factory=asyncio.Event)
     user_events: list[UserEventInput] = field(default_factory=list)
 
@@ -22,31 +23,42 @@ class SimulationControlRegistry:
             self._runs[run_id] = RunControlState()
         return self._runs[run_id]
 
+    def can_pause(self, run_id: str) -> bool:
+        state = self._runs.get(run_id)
+        return state.can_pause if state else False
+
+    def set_can_pause(self, run_id: str, allowed: bool) -> None:
+        self._state(run_id).can_pause = allowed
+
     def request_pause(self, run_id: str) -> None:
         self._state(run_id).pause_requested = True
 
     def is_pause_requested(self, run_id: str) -> bool:
-        return self._state(run_id).pause_requested
+        state = self._runs.get(run_id)
+        return bool(state and state.pause_requested)
 
     def is_paused(self, run_id: str) -> bool:
-        return self._state(run_id).paused
+        state = self._runs.get(run_id)
+        return bool(state and state.paused)
 
     def pending_event_count(self, run_id: str) -> int:
-        return len(self._state(run_id).user_events)
+        state = self._runs.get(run_id)
+        return len(state.user_events) if state else 0
 
     def add_user_event(self, run_id: str, event: UserEventInput) -> UserEventInput:
         self._state(run_id).user_events.append(event)
         return event
 
     def list_pending_user_events(self, run_id: str) -> list[UserEventInput]:
-        return list(self._state(run_id).user_events)
+        state = self._runs.get(run_id)
+        return list(state.user_events) if state else []
 
     def clear_pending_user_events(self, run_id: str) -> None:
         self._state(run_id).user_events.clear()
 
     def resume(self, run_id: str) -> bool:
-        state = self._state(run_id)
-        if not state.paused:
+        state = self._runs.get(run_id)
+        if state is None or not state.paused:
             return False
         state.resume_event.set()
         return True
@@ -77,7 +89,9 @@ class SimulationControlRegistry:
         await on_resumed()
 
     def cleanup(self, run_id: str) -> None:
-        self._runs.pop(run_id, None)
+        state = self._runs.pop(run_id, None)
+        if state:
+            state.resume_event.set()
 
     @staticmethod
     def _to_domain(item: UserEventInput, event_index: int) -> Event:

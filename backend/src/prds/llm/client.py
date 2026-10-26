@@ -9,9 +9,9 @@ from pydantic import BaseModel, ValidationError
 
 from prds.config import Settings, get_settings
 from prds.llm.model_config import (
-    configure_litellm,
     normalize_litellm_model,
     resolve_llm_api_key,
+    resolve_llm_api_base,
 )
 
 logger = logging.getLogger(__name__)
@@ -30,7 +30,6 @@ class LLMClient:
                 "LLM API key is not configured. Set OPENAI_API_KEY or DEEPSEEK_API_KEY in .env."
             )
         self._semaphore = asyncio.Semaphore(self.settings.prds_max_concurrent_llm)
-        configure_litellm(self.settings)
 
     @property
     def api_key_available(self) -> bool:
@@ -62,6 +61,8 @@ class LLMClient:
             "model": model,
             "messages": messages,
             "api_key": resolve_llm_api_key(self.settings, raw_model),
+            "api_base": resolve_llm_api_base(self.settings, raw_model),
+            "timeout": 120,
         }
         api_base = (self.settings.prds_llm_api_base or "").strip()
         if api_base:
@@ -91,7 +92,7 @@ class LLMClient:
                         raise
                     await asyncio.sleep(1.5 * (attempt + 1))
                 except Exception as exc:
-                    logger.warning("LLM call failed (attempt %d): %s", attempt + 1, exc)
+                    logger.warning("LLM call failed (attempt %d): %s", attempt + 1, type(exc).__name__)
                     if attempt == 2:
                         raise
                     await asyncio.sleep(1.5 * (attempt + 1))
@@ -161,7 +162,6 @@ class LLMClient:
         )
         repair_user = user
         last_error: Exception | None = None
-        last_raw = ""
 
         for attempt in range(3):
             try:
@@ -171,17 +171,11 @@ class LLMClient:
                     model=model,
                     response_format={"type": "json_object"},
                 )
-                last_raw = raw
                 data = self._parse_json(raw)
                 return model_class.model_validate(data)
             except (json.JSONDecodeError, LLMStructuredOutputError, ValidationError) as exc:
                 last_error = exc
-                logger.warning(
-                    "Failed to parse LLM JSON (attempt %d/3): %s; raw=%r",
-                    attempt + 1,
-                    exc,
-                    (last_raw[:500] + "...") if len(last_raw) > 500 else last_raw,
-                )
+                logger.warning("Invalid LLM JSON (attempt %d/3): %s", attempt + 1, type(exc).__name__)
 
             repair_user = (
                 f"{user}\n\n"
@@ -192,6 +186,5 @@ class LLMClient:
                 await asyncio.sleep(0.75 * (attempt + 1))
 
         raise LLMStructuredOutputError(
-            f"Could not parse LLM JSON after 3 attempts: {last_error}; "
-            f"last raw={last_raw[:500]!r}"
+            "Could not parse LLM JSON after 3 attempts"
         ) from last_error

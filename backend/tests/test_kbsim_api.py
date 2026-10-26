@@ -194,6 +194,8 @@ async def test_pause_is_limited_to_the_branch_simulation_phase(api):
     assert too_early.status_code == 409
 
     await repo.update_progress(run_id, phase=SimulationPhase.BRANCH_SIM)
+    from prds.simulation.control import get_control
+    get_control().set_can_pause(run_id, True)
     ok = await client.post(f"/api/simulations/{run_id}/pause")
     assert ok.status_code == 200
     assert ok.json()["status"] == "pause_requested"

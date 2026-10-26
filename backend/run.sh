@@ -25,4 +25,4 @@ if [[ -z "$UVICORN" ]]; then
   exit 127
 fi
 
-exec "$UVICORN" prds.main:app --reload --host 0.0.0.0 --port 8000 "$@"
+exec "$UVICORN" prds.main:app --host 127.0.0.1 --port 8000 "$@"

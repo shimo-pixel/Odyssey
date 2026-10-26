@@ -1,4 +1,4 @@
-import { API, buildPayload, getPhaseSteps, statusLabel, phaseLabel } from '../api.js';
+import { API, buildPayload, getPhaseSteps, statusLabel, phaseLabel, TERMINAL_STATUSES, issueLabel } from '../api.js';
 import { pageShell, refreshSidebarNav } from '../layout.js';
 import { icon, spinner } from '../icons.js';
 import { t } from '../i18n.js';
@@ -21,6 +21,9 @@ let kbDrillCategory = null;
 let modelCatalog = [];
 let modelMenuOutsideHandler = null;
 let statusStop = null;
+let runLoadGen = 0;
+let runActionBusy = false;
+let runAbort = null;
 let menuOutsideHandler = null;
 let chatSessionId = null;
 /** @type {Array<{role:string,content:string,model?:string}>} */
@@ -670,6 +673,7 @@ function bindComposerHandlers(form, { onSubmit } = {}) {
   updateComposerState();
 
   form.addEventListener('keydown', (e) => {
+    if (e.target.closest('#run-panel')) return;
     if (e.key !== 'Enter') return;
     // IME composing (e.g. Chinese pinyin) — don't submit mid-composition
     if (e.isComposing || e.keyCode === 229) return;
@@ -913,66 +917,169 @@ function openPlusMenu() {
 function renderRunningPanel(simId, status) {
   const root = document.getElementById('sim-workspace');
   if (!root) return;
-  const pct = Math.round(status?.progress_pct || 0);
+  const terminal = TERMINAL_STATUSES.has(status?.status);
+  const paused = status?.status === 'paused';
   root.classList.add('sim-workspace-run');
-  root.innerHTML = `
-    <div class="sim-main-inner">
-      <div class="glass-panel rounded-lg p-8 max-w-xl mx-auto text-center">
-        <h2 class="text-lg font-semibold mb-2">${t('history.runningTitle')}</h2>
-        <p class="text-sm text-on-surface-variant mb-6">${t('history.runningDesc')}</p>
-        <div class="flex justify-between text-xs text-on-surface-variant mb-2">
-          <span>${escapeHtml(statusLabel(status?.status))}</span>
-          <span class="font-mono text-primary">${pct}%</span>
-        </div>
-        ${progressBarHtml(pct)}
-        <div class="grid grid-cols-3 gap-4 mt-6 text-sm">
-          <div><p class="text-[10px] text-on-surface-variant">${t('history.phase')}</p><p class="font-medium mt-1">${escapeHtml(phaseLabel(status?.phase))}</p></div>
-          <div><p class="text-[10px] text-on-surface-variant">${t('monitor.event')}</p><p class="font-mono mt-1">${status?.current_event_index ?? 0}/${status?.total_events ?? 0}</p></div>
-          <div><p class="text-[10px] text-on-surface-variant">${t('monitor.alive')}</p><p class="font-mono mt-1">${status?.alive_agents ?? '—'}</p></div>
-        </div>
-        ${status?.error ? `<p class="text-error text-sm mt-4">${escapeHtml(status.error)}</p>` : ''}
-        <p class="text-[11px] font-mono text-outline mt-6">${escapeHtml(simId)}</p>
+  if (root.dataset.runId !== simId || !root.querySelector('#run-panel')) {
+    root.dataset.runId = simId;
+    root.innerHTML = `<div class="sim-main-inner"><section id="run-panel" class="glass-panel rounded-lg p-8 max-w-xl mx-auto" aria-live="polite">
+      <h2 id="run-title" class="text-lg font-semibold mb-2"></h2>
+      <p id="run-description" class="text-sm text-on-surface-variant mb-6"></p>
+      <div class="flex justify-between text-xs mb-2"><span id="run-status"></span><span id="run-percent"></span></div>
+      <progress id="run-progress" max="100" class="run-progress" aria-label="${t('history.phase')}"></progress>
+      <p id="run-phase" class="text-sm mt-4"></p><p id="run-model" class="text-xs mt-3"></p>
+      <div id="run-warnings" class="text-sm mt-3"></div><p id="run-error" class="text-error text-sm mt-3" role="alert"></p><p id="run-action-error" class="text-error text-sm mt-3" role="alert"></p>
+      <div id="run-connection" class="text-sm mt-3" role="status"></div>
+      <button type="button" id="run-reconnect" class="text-primary mt-2" hidden>${t('run.reconnect')}</button>
+      <div class="flex flex-wrap gap-4 mt-6">
+        <button type="button" id="run-pause" class="text-primary" hidden>${t('monitor.pause')}</button>
+        <button type="button" id="run-resume" class="text-primary" hidden>${t('monitor.resume')}</button>
+        <button type="button" id="run-cancel" class="text-error" hidden>${t('run.cancel')}</button>
+        <button type="button" id="run-delete" class="text-error">${t('run.delete')}</button>
       </div>
-    </div>`;
+      <div id="run-retry-controls" class="mt-4" hidden>
+        <label for="run-retry-model" class="text-sm">${t('sim.modelSelect')}</label>
+        <select id="run-retry-model" class="w-full rounded-lg mt-2" aria-label="${t('sim.modelSelect')}"></select>
+        <button type="button" id="run-retry" class="text-primary mt-3">${t('run.retry')}</button>
+      </div>
+      <div id="run-injection" class="mt-6" hidden>
+        <h3 class="text-sm font-semibold">${t('run.inject')}</h3>
+        <p class="text-xs mt-2">${t('run.injectHint')}</p>
+        <ul id="run-event-list" class="text-sm my-3"></ul>
+        <div id="run-event-form" class="space-y-3">
+          <label class="block text-sm">${t('run.eventDescription')}<textarea id="run-event-description" class="w-full rounded-lg mt-1" maxlength="500" required></textarea></label>
+          <label class="block text-sm">${t('run.category')}<select id="run-event-category" class="w-full rounded-lg mt-1">
+            ${['macro', 'market', 'org', 'resource'].map(c => `<option value="${c}">${t(`event.${c}`)}</option>`).join('')}
+          </select></label>
+          <div class="grid grid-cols-2 gap-3">
+            <label class="text-sm">${t('run.impact')}<input id="run-event-impact" class="w-full rounded-lg mt-1" type="number" min="-1" max="1" step="0.1" value="0" required></label>
+            <label class="text-sm">${t('run.severity')}<input id="run-event-severity" class="w-full rounded-lg mt-1" type="number" min="0.1" max="1" step="0.1" value="0.6" required></label>
+          </div>
+          <div class="flex gap-4">
+            <button type="button" id="run-add-event" class="text-primary">${t('run.addEvent')}</button>
+            <button type="button" id="run-clear-events" class="text-error">${t('monitor.clear')}</button>
+          </div>
+        </div>
+      </div>
+      <p class="text-xs text-outline mt-6">${escapeHtml(simId)}</p>
+    </section></div>`;
+  }
+  const el = id => root.querySelector(`#${id}`);
+  const pct = Math.round(status?.progress_pct || 0);
+  el('run-title').textContent = terminal || paused ? statusLabel(status.status) : t('history.runningTitle');
+  el('run-description').textContent = status?.status === 'interrupted' ? t('run.interruptedHint')
+    : status?.status === 'cancelled' ? t('run.cancelledHint')
+    : paused ? t('monitor.pausedShort') : t('history.runningDesc');
+  el('run-status').textContent = statusLabel(status?.status || 'pending');
+  el('run-percent').textContent = `${pct}%`;
+  el('run-progress').value = pct;
+  el('run-phase').textContent = `${phaseLabel(status?.phase || 'pending')} · ${status?.current_event_index || 0}/${status?.total_events || 0}`;
+  el('run-model').textContent = `${t('run.model')}: ${status?.model_info?.model || t('run.modelUnknown')}`;
+  el('run-error').textContent = status?.failure ? issueLabel(status.failure) : status?.error || '';
+  el('run-warnings').textContent = (status?.warnings || []).map(issueLabel).join(' · ');
+  el('run-pause').hidden = !status?.can_pause || status.pause_pending;
+  el('run-resume').hidden = !paused;
+  el('run-cancel').hidden = terminal;
+  el('run-injection').hidden = !paused;
+  el('run-retry-controls').hidden = !terminal;
+  const select = el('run-retry-model');
+  if (terminal && !select.dataset.ready) {
+    const selected = status?.model_info?.model_id || '';
+    select.innerHTML = `<option value="">${t('run.originalModel')}</option>` + modelCatalog.map(m =>
+      `<option value="${escapeHtml(m.id)}" ${m.id === selected ? 'selected' : ''}>${escapeHtml(m.name || m.model)}</option>`).join('');
+    select.dataset.ready = '1';
+  }
+  root.querySelectorAll('button, input, textarea, select').forEach(node => { node.disabled = runActionBusy; });
 }
 
 async function loadRunIntoWorkspace(simId) {
   const root = document.getElementById('sim-workspace');
   if (!root) return;
-  try {
-    const status = await API.getStatus(simId);
-    const st = (status.status || '').toLowerCase();
-    if (st === 'completed') {
-      root.classList.add('sim-workspace-run');
-      root.innerHTML = '<div class="sim-main-inner" id="results-root"></div>';
-      await mountResults(simId, document.getElementById('results-root'));
-      return;
+  const generation = runLoadGen;
+  const controller = new AbortController();
+  runAbort = controller;
+  const current = () => generation === runLoadGen && root.isConnected;
+  renderRunningPanel(simId, { status: 'pending' });
+  const error = message => { const target = root.querySelector('#run-action-error'); if (current() && target) target.textContent = message; };
+  const refreshEvents = async () => {
+    const data = await API.getUserEvents(simId, { signal: controller.signal });
+    if (!current()) return;
+    const list = root.querySelector('#run-event-list');
+    if (list) list.innerHTML = data.events.map(e => `<li class="py-1">${escapeHtml(e.description)}</li>`).join('') || `<li>${t('run.noEvents')}</li>`;
+  };
+  root.onclick = async e => {
+    const button = e.target.closest('button');
+    if (!button || !current()) return;
+    if (button.id === 'run-reconnect') { statusStop?.reconnect(); return; }
+    const actions = {
+      'run-add-event': addInjected,
+      'run-pause': () => API.pauseSimulation(simId),
+      'run-resume': () => API.resumeSimulation(simId),
+      'run-cancel': () => API.cancelSimulation(simId),
+      'run-clear-events': async () => { await API.clearUserEvents(simId); await refreshEvents(); },
+      'run-delete': async () => {
+        if (!confirm(t('sidebar.deleteConfirm'))) return;
+        await API.deleteSimulation(simId);
+        if (current()) { location.hash = '#simulate'; void refreshSidebarNav({ simId: null }); }
+      },
+      'run-retry': async () => {
+        const { simulation_id } = await API.retrySimulation(simId, root.querySelector('#run-retry-model').value || null);
+        if (current()) location.hash = `#simulate/${simulation_id}`;
+      },
+    };
+    const action = actions[button.id];
+    if (!action || runActionBusy) return;
+    runActionBusy = true;
+    error('');
+    button.disabled = true;
+    try { await action(); }
+    catch (err) { error(err.message); }
+    finally {
+      runActionBusy = false;
+      if (current()) root.querySelectorAll('button, input, textarea, select').forEach(node => { node.disabled = false; });
     }
-    renderRunningPanel(simId, status);
-    if (st === 'failed') return;
-    statusStop = API.pollStatus(simId, async (data) => {
-      const s = (data.status || '').toLowerCase();
-      if (s === 'completed') {
-        if (statusStop) {
-          statusStop();
-          statusStop = null;
-        }
-        const ws = document.getElementById('sim-workspace');
-        if (ws) {
-          ws.classList.add('sim-workspace-run');
-          ws.innerHTML = '<div class="sim-main-inner" id="results-root"></div>';
-          await mountResults(simId, document.getElementById('results-root'));
-        }
-        void refreshSidebarNav({ simId, chatId: null });
-        return;
-      }
+  };
+  const addInjected = async () => {
+    const fields = [...root.querySelectorAll('#run-event-form input, #run-event-form textarea')];
+    if (fields.some(field => !field.reportValidity())) return;
+    const text = root.querySelector('#run-event-description');
+    try {
+      await API.addUserEvent(simId, {
+        description: text.value.trim(), category: root.querySelector('#run-event-category').value,
+        impact: Number(root.querySelector('#run-event-impact').value), severity: Number(root.querySelector('#run-event-severity').value),
+      });
+      if (current()) { text.value = ''; await refreshEvents(); }
+    } catch (err) { error(err.message); }
+  };
+  statusStop = API.pollStatus(simId, async data => {
+    if (!current()) return;
+    if (data.status === 'completed') {
+      closePlusMenu();
+      closeModelMenu();
+      const form = root.closest('#sim-form');
+      form?.classList.add('sim-page--completed');
+      form?.querySelector('.sim-composer')?.remove();
+      root.innerHTML = '<div class="sim-main-inner" id="results-root"></div>';
+      await mountResults(simId, root.querySelector('#results-root'), { signal: controller.signal });
+      if (current()) void refreshSidebarNav({ simId, chatId: null });
+    } else {
       renderRunningPanel(simId, data);
-    });
-  } catch (e) {
-    root.innerHTML = `<div class="sim-main-inner"><div class="glass-panel p-8 text-center"><p class="text-error font-bold">${t('results.loadFailed')}</p>
-      <p class="text-sm text-on-surface-variant mt-2">${escapeHtml(e.message)}</p>
-      <a href="#simulate" class="inline-block mt-4 text-primary font-bold">${t('sidebar.newRun')}</a></div></div>`;
-  }
+      if (data.status === 'paused') {
+        try { await refreshEvents(); } catch (err) { if (!controller.signal.aborted) error(err.message); }
+      }
+    }
+  }, { onConnection: ({ state, lastUpdated }) => {
+    if (!current()) return;
+    const panel = root.querySelector('#run-connection');
+    if (!panel) return;
+    panel.textContent = state === 'connected' ? '' : t(`run.connection.${state}`);
+    if (lastUpdated) panel.textContent += `${panel.textContent ? ' · ' : ''}${t('run.lastUpdated')}: ${lastUpdated.toLocaleTimeString()}`;
+    root.querySelector('#run-reconnect').hidden = !['retrying', 'disconnected'].includes(state);
+    if (state === 'missing') {
+      root.querySelector('#run-title').textContent = t('run.missing');
+      root.querySelectorAll('button, form, #run-retry-controls').forEach(n => { n.hidden = true; });
+    }
+  } });
 }
 
 async function handleUploadFiles(input) {
@@ -1011,6 +1118,12 @@ async function handleUploadFiles(input) {
 }
 
 export function unmountSimulate() {
+  runLoadGen += 1;
+  runAbort?.abort();
+  runAbort = null;
+  runActionBusy = false;
+  const workspace = document.getElementById('sim-workspace');
+  if (workspace) { workspace.onclick = null; workspace.onsubmit = null; }
   if (statusStop) {
     statusStop();
     statusStop = null;
@@ -1032,10 +1145,13 @@ export async function mountSimulate(simId = null) {
   unmountSimulate();
   const form = document.getElementById('sim-form');
   if (!form) return;
+  const generation = runLoadGen;
   selectedKbIds = new Set();
 
   await loadKbCategories();
+  if (generation !== runLoadGen) return;
   await refreshModelSelect();
+  if (generation !== runLoadGen) return;
 
   const preferred = sessionStorage.getItem('prds_sim_mode');
   if (preferred) sessionStorage.removeItem('prds_sim_mode');
@@ -1155,8 +1271,9 @@ export async function mountSimulate(simId = null) {
 
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
+    if (document.activeElement?.closest('#run-panel')) return;
     const btn = document.getElementById('start-btn');
-    if (btn.disabled) return;
+    if (!btn || btn.disabled) return;
     const goalVal = (document.getElementById('goal')?.value || '').trim();
     if (!goalVal) {
       alert(t('sim.fillRequired'));
@@ -1178,6 +1295,7 @@ export async function mountSimulate(simId = null) {
     // knowledge bases inside the run, so there is nothing to confirm up front.
     const payload = buildPayload({
       goal: goalVal,
+      modelId: getSelectedModelId(),
       background: '',
       constraints: '',
       kbCategoryIds: [...selectedKbIds],

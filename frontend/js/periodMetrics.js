@@ -35,17 +35,6 @@ export function pickHighlightAgent(agents, championId) {
     || agents[0];
 }
 
-export function metricGapLines(goalStatus, limit = 2) {
-  const gaps = goalStatus?.metric_gaps || {};
-  return Object.entries(gaps)
-    .filter(([, gap]) => Number(gap) > 0.001)
-    .slice(0, limit)
-    .map(([key, gap]) => {
-      const digits = gap >= 10 ? 0 : gap >= 1 ? 1 : 3;
-      return `${esc(key)}: ${fmtNum(gap, digits)}`;
-    });
-}
-
 /** "数学 62 → 83 (+21)" for every metric the state prediction touched. */
 export function renderMetricReadings(metrics, { compact = false } = {}) {
   const rows = (metrics || []).filter(m => m && m.name != null);
@@ -78,15 +67,11 @@ export function renderMetricReadings(metrics, { compact = false } = {}) {
 export function renderGoalStatusBlock(goalStatus, { compact = false } = {}) {
   const g = goalStatus || {};
   const progress = Number(g.progress);
-  const distance = Number(g.distance);
-  const gaps = metricGapLines(g, compact ? 2 : 4);
 
   if (compact) {
     return `
       <div class="period-metrics period-metrics--compact period-metrics--goal">
         <span>${t('results.goalProgress')} <strong class="text-primary">${fmtPct(progress)}</strong></span>
-        <span class="period-metrics-sep">·</span>
-        <span>${t('results.goalDistance')} <strong>${fmtPct(distance)}</strong></span>
       </div>`;
   }
 
@@ -98,9 +83,7 @@ export function renderGoalStatusBlock(goalStatus, { compact = false } = {}) {
       </div>
       <div class="period-metrics-grid period-metrics-grid--goal">
         <div><span class="period-metrics-label">${t('results.goalProgress')}</span><span class="period-metrics-value text-primary">${fmtPct(progress)}</span></div>
-        <div><span class="period-metrics-label">${t('results.goalDistance')}</span><span class="period-metrics-value">${fmtPct(distance)}</span></div>
       </div>
-      ${gaps.length ? `<p class="period-metrics-gaps">${t('results.metricGaps')}: ${gaps.join(' · ')}</p>` : ''}
     </div>`;
 }
 

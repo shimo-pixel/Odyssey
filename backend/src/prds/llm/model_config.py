@@ -37,6 +37,19 @@ def resolve_llm_api_key(settings: Settings, model: str | None = None) -> str | N
     return (settings.openai_api_key or settings.deepseek_api_key) or None
 
 
+def resolve_llm_api_base(settings: Settings, model: str) -> str | None:
+    """Provider defaults are request-local; do not use LiteLLM's process globals."""
+    if settings.prds_llm_api_base:
+        return settings.prds_llm_api_base.rstrip("/")
+    normalized = normalize_litellm_model(model, settings)
+    provider = normalized.split("/", 1)[0] if "/" in normalized else "openai"
+    return {
+        "openai": "https://api.openai.com/v1",
+        "deepseek": "https://api.deepseek.com",
+        "anthropic": "https://api.anthropic.com",
+    }.get(provider)
+
+
 def _set_env_if_value(name: str, value: str) -> None:
     """Set env var when we have a real key; overwrite empty placeholders from .env."""
     if not value:

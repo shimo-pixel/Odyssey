@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 import logging
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from prds.kbsim.prompts import INTAKE_SYSTEM
 from prds.llm.client import LLMClient
@@ -19,24 +19,20 @@ logger = logging.getLogger(__name__)
 
 
 class IntakeBrief(BaseModel):
-    background: str = ""
+    background: str = Field(..., min_length=1)
     constraints: list[str] = Field(default_factory=list)
     risks: list[str] = Field(default_factory=list)
     opportunities: list[str] = Field(default_factory=list)
-    metric_specs: list[MetricSpec] = Field(default_factory=list)
+    metric_specs: list[MetricSpec] = Field(..., min_length=1)
     notes: str = ""
 
-
-def _fallback_metric_specs(goal: TargetGoal) -> list[MetricSpec]:
-    """Derive metrics from explicit success_metrics, or fall back to a generic one."""
-    specs = [
-        MetricSpec(name=name, baseline=0.0, target=float(target))
-        for name, target in (goal.success_metrics or {}).items()
-        if isinstance(target, (int, float))
-    ]
-    if specs:
-        return specs
-    return [MetricSpec(name="目标达成度", unit="%", baseline=0.0, target=100.0)]
+    @field_validator("metric_specs", mode="before")
+    @classmethod
+    def require_measured_baselines(cls, values):
+        for spec in values:
+            if isinstance(spec, dict) and not {"name", "baseline", "target"} <= spec.keys():
+                raise ValueError("Every metric requires a name, baseline, and target")
+        return values
 
 
 async def build_intake_brief(
@@ -58,28 +54,15 @@ async def build_intake_brief(
         + json.dumps(payload, ensure_ascii=False, indent=2)
     )
 
-    try:
-        brief = await llm.structured_complete(
-            INTAKE_SYSTEM, user, IntakeBrief, model=llm.analysis_model
-        )
-    except Exception as exc:
-        logger.warning("Intake structuring failed, falling back to raw input: %s", exc)
-        brief = IntakeBrief(
-            background=current_state.background,
-            constraints=list(current_state.constraints),
-            risks=list(current_state.risks),
-            opportunities=list(current_state.opportunities),
-        )
-
-    if not brief.background.strip():
-        brief.background = current_state.background
-    if not brief.constraints:
-        brief.constraints = list(current_state.constraints)
-    brief.metric_specs = [
-        spec for spec in brief.metric_specs if spec.name and spec.name.strip()
-    ]
-    if not brief.metric_specs:
-        brief.metric_specs = _fallback_metric_specs(goal)
+    brief = await llm.structured_complete(
+        INTAKE_SYSTEM, user, IntakeBrief, model=llm.analysis_model
+    )
+    if not brief.background.strip() or not brief.metric_specs:
+        raise ValueError("Intake requires background and measurable metrics")
+    if len({spec.name.strip() for spec in brief.metric_specs}) != len(brief.metric_specs):
+        raise ValueError("Metric names must be unique")
+    if any(not spec.name.strip() for spec in brief.metric_specs):
+        raise ValueError("Metric name required")
 
     logger.info(
         "Intake brief ready: %d metrics, %d constraints, %d risks",

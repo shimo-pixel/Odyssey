@@ -10,6 +10,7 @@ from prds.api.routes.llm_models import router as llm_models_router
 from prds.api.routes.llm_settings import router as llm_settings_router
 from prds.api.routes.simulations import get_repo, router as simulations_router
 from prds.config import get_settings, set_runtime_llm_overrides
+from prds.simulation.tasks import get_tasks
 from prds.kb.proxy import router as lightrag_proxy_router
 from prds.kb.routes import router as kb_router
 from prds.kb.settings_store import apply_default_model_runtime, load_llm_overrides
@@ -27,10 +28,12 @@ CORS_ORIGINS = [
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    get_tasks().shutting_down = False
     settings = get_settings()
     logger.info("PRDS starting with model=%s", settings.prds_llm_model)
     repo = get_repo()
     await repo.init_db()
+    await repo.interrupt_active_runs()
     overrides = await load_llm_overrides()
     if overrides:
         set_runtime_llm_overrides(overrides)
@@ -40,8 +43,12 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         logger.warning("Model catalog bootstrap skipped: %s", exc)
     app.state.lightrag_http = httpx.AsyncClient(timeout=120.0)
-    yield
-    await app.state.lightrag_http.aclose()
+    try:
+        yield
+    finally:
+        await get_tasks().shutdown()
+        await app.state.lightrag_http.aclose()
+        await repo.engine.dispose()
     logger.info("PRDS shutdown")
 
 
@@ -106,4 +113,4 @@ async def public_config() -> dict:
 def run() -> None:
     import uvicorn
 
-    uvicorn.run("prds.main:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("prds.main:app", host="127.0.0.1", port=8000, reload=False)

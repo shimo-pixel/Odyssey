@@ -30,7 +30,7 @@ _CATEGORY_VALUES = {c.value for c in EventCategory}
 class EventDraft(BaseModel):
     event_type: str = Field(default="situation_shift")
     category: str = Field(default="market")
-    description: str = ""
+    description: str = Field(default="", description="独立于分支决策的客观处境变化；只写发生了什么，不写应对策略、建议或策略执行结果")
     impact: float = 0.0
     probability: float = 0.5
     severity: float = 0.5
@@ -143,18 +143,15 @@ async def plan_events(
 
     swan_drafts: list[EventDraft] = []
     if swan_quota:
-        try:
-            swan_plan = await llm.structured_complete(
-                BLACK_SWAN_SYSTEM,
-                _plan_payload(
-                    goal=goal, brief=brief, kb_context=kb_context, count=swan_quota
-                ),
-                EventPlan,
-                model=llm.analysis_model,
-            )
-            swan_drafts = [d for d in swan_plan.events if d.description.strip()][:swan_quota]
-        except Exception as exc:
-            logger.warning("Black swan planning failed, continuing without: %s", exc)
+        swan_plan = await llm.structured_complete(
+            BLACK_SWAN_SYSTEM,
+            _plan_payload(
+                goal=goal, brief=brief, kb_context=kb_context, count=swan_quota
+            ),
+            EventPlan,
+            model=llm.analysis_model,
+        )
+        swan_drafts = [d for d in swan_plan.events if d.description.strip()][:swan_quota]
 
     slots = set(black_swan_slots(len(drafts) + len(swan_drafts), len(swan_drafts), config.seed))
     events: list[Event] = []

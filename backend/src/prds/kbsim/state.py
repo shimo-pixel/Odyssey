@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 import logging
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict, create_model, model_validator
 
 from prds.kbsim.prompts import STATE_SYSTEM
 from prds.llm.client import LLMClient
@@ -28,18 +28,19 @@ logger = logging.getLogger(__name__)
 
 
 class MetricPrediction(BaseModel):
-    name: str = ""
-    value: float = 0.0
-    reason: str = ""
+    model_config = ConfigDict(allow_inf_nan=False)
+    name: str = Field(..., min_length=1)
+    value: float
+    reason: str = Field(..., min_length=1)
 
 
 class StatePrediction(BaseModel):
-    narrative: str = ""
-    metrics: list[MetricPrediction] = Field(default_factory=list)
+    narrative: str = Field(..., min_length=1)
+    metrics: list[MetricPrediction] = Field(..., min_length=1)
     risks: list[str] = Field(default_factory=list)
     side_effects: list[str] = Field(default_factory=list)
-    confidence: float = 0.5
-    success: bool = True
+    confidence: float = Field(..., ge=0, le=1)
+    success: bool
 
 
 def compute_goal_status(
@@ -48,19 +49,15 @@ def compute_goal_status(
     """Aggregate per-metric progress into an overall goal completion ratio."""
     by_name = {spec.name: spec for spec in specs}
     progress: dict[str, float] = {}
-    gaps: dict[str, float] = {}
     for reading in metrics:
         spec = by_name.get(reading.name)
         if spec is None:
             continue
         progress[reading.name] = round(spec.progress(reading.value), 4)
-        gaps[reading.name] = round(spec.target - reading.value, 4)
     overall = round(sum(progress.values()) / len(progress), 4) if progress else 0.0
     return GoalStatus(
         progress=overall,
-        distance=round(1.0 - overall, 4),
         metric_progress=progress,
-        metric_gaps=gaps,
     )
 
 
@@ -95,10 +92,12 @@ async def predict_state(
     goal: TargetGoal,
     context: str,
     model: str | None = None,
+    extra_events: list[Event] | None = None,
 ) -> BranchStateUpdate:
     previous_by_name = {m.name: m.value for m in previous.metrics}
     payload = {
         "final_goal": goal.description,
+        "events": [e.model_dump() for e in [event, *(extra_events or [])]],
         "branch": {
             "label": branch.label,
             "rationality": branch.rationality.value,
@@ -127,24 +126,47 @@ async def predict_state(
     }
     user = (
         "预测执行该策略之后这条平行世界的新状态。\n\n"
+        "metrics 必须逐一包含 metrics_to_predict 中的全部指标，name 原样复制，不得遗漏、重复或改名；"
+        "narrative 和每项 reason 不得为空白。\n\n"
         + json.dumps(payload, ensure_ascii=False, indent=2)
     )
 
-    try:
-        prediction = await llm.structured_complete(
-            STATE_SYSTEM, user, StatePrediction, model=model
-        )
-    except Exception as exc:
-        logger.warning(
-            "State prediction failed (%s, event %d): %s", branch.branch_id, event_index, exc
-        )
-        prediction = StatePrediction(
-            narrative=f"{strategy.title} 已执行，但本轮未能得到可靠的状态预测。",
-            confidence=0.2,
-            success=False,
-        )
+    from prds.simulation.errors import SimulationFailure
 
-    predicted = {p.name: p for p in prediction.metrics if p.name}
+    # Validate against this run's metrics inside structured_complete, so an
+    # otherwise valid JSON response can be corrected by its retry loop.
+    def require_complete_state(prediction):
+        names = [p.name for p in prediction.metrics]
+        if len(names) != len(specs) or set(names) != {s.name for s in specs}:
+            raise ValueError("Return every requested metric exactly once using its exact name")
+        if not prediction.narrative.strip() or any(not p.reason.strip() for p in prediction.metrics):
+            raise ValueError("Narrative and metric reasons must contain text")
+        return prediction
+
+    required_prediction = create_model(
+        "StatePrediction",
+        __base__=StatePrediction,
+        __validators__={"require_complete_state": model_validator(mode="after")(require_complete_state)},
+    )
+
+    try:
+        prediction = await llm.structured_complete(STATE_SYSTEM, user, required_prediction, model=model)
+        predicted = {p.name: p for p in prediction.metrics if p.name}
+        if not prediction.narrative.strip() or len(prediction.metrics) != len(specs) or set(predicted) != {s.name for s in specs}:
+            raise ValueError("All metric predictions and narrative are required")
+        if any(not p.reason.strip() for p in prediction.metrics):
+            raise ValueError("Metric prediction reasons are required")
+    except Exception as exc:
+        # Only exception types are safe to log: provider messages may contain
+        # credentials, prompt contents, or other private data.
+        cause = exc.__cause__
+        logger.error(
+            "State prediction failed: branch=%s event=%s error_type=%s cause_type=%s",
+            branch.branch_id, event_index, type(exc).__name__,
+            type(cause).__name__ if cause else "none",
+        )
+        raise SimulationFailure("prediction", branch_id=branch.branch_id, event_index=event_index) from exc
+
     readings: list[MetricReading] = []
     for spec in specs:
         hit = predicted.get(spec.name)
@@ -179,15 +201,18 @@ def render_state_snapshot(
     event_index: int,
     strategy: StrategyOption,
     state: BranchStateUpdate,
+    extra_events: list[Event] | None = None,
 ) -> str:
     """Markdown snapshot fed back into the branch KB (kept small on purpose)."""
     lines = [
         f"# 当前状态快照（{branch.label}）",
         "",
         f"- 推演目标：{goal.description}",
-        f"- 最近事件（第 {event_index} 个）：{event.description}",
+        f"- 最近事件（第 {event_index} 个，{event.event_id}）：{event.description}（impact={event.impact}, severity={event.severity}）",
         f"- 采取的应对：{strategy.title}",
     ]
+    for injected in extra_events or []:
+        lines.append(f"- 注入事件 {injected.event_id}：{injected.description}（impact={injected.impact}, severity={injected.severity}）")
     if strategy.detail:
         lines.append(f"- 具体做法：{strategy.detail}")
     lines += ["", "## 关键指标", ""]

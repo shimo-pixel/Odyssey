@@ -159,14 +159,17 @@ async def test_write_state_replaces_the_previous_snapshot():
     assert kb.documents[branch.primary_workspace][STATE_SOURCE] == "# 状态快照 2"
 
 
-async def test_write_state_is_skipped_without_a_target_workspace():
+async def test_write_state_requires_a_target_workspace():
     kb = FakeLightRAG()
     manager = _manager(kb)
     branches = await manager.fork(branch_count=1, source_ids=[], baseline_doc="")
     branches[0].primary_workspace = ""
 
-    assert await manager.write_state(branches[0], "# 快照") is False
-    assert await manager.write_state(branches[0], "   ") is False
+    from prds.simulation.errors import SimulationFailure
+    with pytest.raises(SimulationFailure):
+        await manager.write_state(branches[0], "# 快照")
+    with pytest.raises(SimulationFailure):
+        await manager.write_state(branches[0], "   ")
 
 
 @pytest.mark.parametrize(

@@ -192,6 +192,7 @@ async def build_synthesis(
         "trace": [
             {
                 "event_index": e.event_index,
+                "events": [event.model_dump() for event in e.events],
                 "branch_id": e.branch_id,
                 "strategy": e.strategy.title,
                 "rationality": e.strategy.rationality.value,
@@ -206,13 +207,9 @@ async def build_synthesis(
         payload, ensure_ascii=False, indent=2
     )
 
-    try:
-        draft = await llm.structured_complete(
-            SYNTHESIS_SYSTEM, user, SynthesisDraft, model=model
-        )
-    except Exception as exc:
-        logger.warning("Synthesis failed: %s", exc)
-        return StrategySynthesis(), _fallback_counterfactuals(trace, summaries)
+    draft = await llm.structured_complete(SYNTHESIS_SYSTEM, user, SynthesisDraft, model=model)
+    if not draft.recommended_roadmap or not draft.principles:
+        raise ValueError("Synthesis requires principles and roadmap")
 
     counterfactuals = [
         CounterfactualComparison(

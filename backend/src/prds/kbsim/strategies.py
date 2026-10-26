@@ -27,27 +27,16 @@ logger = logging.getLogger(__name__)
 
 
 class StrategyDraft(BaseModel):
-    branch_id: str = ""
-    title: str = ""
+    branch_id: str = Field(..., min_length=1)
+    title: str = Field(..., min_length=1)
     action_label: str = ""
-    detail: str = ""
-    rationale: str = ""
+    detail: str = Field(..., min_length=1)
+    rationale: str = Field(..., min_length=1)
     rationality: str = "rational"
 
 
 class StrategyBatch(BaseModel):
     strategies: list[StrategyDraft] = Field(default_factory=list)
-
-
-def _fallback_strategy(branch: BranchProfile, event: Event) -> StrategyOption:
-    return StrategyOption(
-        branch_id=branch.branch_id,
-        title=f"按{branch.label}的既有方式应对：{event.description[:40]}",
-        action_label="维持现状",
-        detail="沿用当前做法，观察事件后续影响。",
-        rationale="策略生成失败，退回到保守的观察式应对。",
-        rationality=branch.rationality,
-    )
 
 
 async def generate_strategies(
@@ -62,10 +51,12 @@ async def generate_strategies(
     contexts: dict[str, str],
     last_states: dict[str, BranchStateUpdate],
     model: str | None = None,
+    extra_events: list[Event] | None = None,
 ) -> dict[str, StrategyOption]:
     """Produce exactly one strategy per branch, honouring each branch's profile."""
     payload = {
         "final_goal": goal.description,
+        "events": [e.model_dump() for e in [event, *(extra_events or [])]],
         "event": {
             "index": event_index,
             "total": total_events,
@@ -98,26 +89,22 @@ async def generate_strategies(
         + json.dumps(payload, ensure_ascii=False, indent=2)
     )
 
-    drafts: list[StrategyDraft] = []
+    from prds.simulation.errors import SimulationFailure
     try:
-        batch = await llm.structured_complete(
-            STRATEGY_SYSTEM, user, StrategyBatch, model=model
-        )
-        drafts = batch.strategies
+        batch = await llm.structured_complete(STRATEGY_SYSTEM, user, StrategyBatch, model=model)
     except Exception as exc:
-        logger.warning("Strategy generation failed for event %d: %s", event_index, exc)
-
-    by_id = {d.branch_id: d for d in drafts if d.branch_id}
-    leftovers = [d for d in drafts if d.branch_id not in {b.branch_id for b in branches}]
-
+        raise SimulationFailure("strategy", event_index=event_index) from exc
+    expected = {b.branch_id for b in branches}
+    if len(batch.strategies) != len(branches) or {d.branch_id for d in batch.strategies} != expected:
+        raise SimulationFailure("strategy", event_index=event_index, code="invalid_output")
+    by_id = {d.branch_id: d for d in batch.strategies}
     result: dict[str, StrategyOption] = {}
-    for position, branch in enumerate(branches):
-        draft = by_id.get(branch.branch_id)
-        if draft is None and position < len(leftovers):
-            draft = leftovers[position]
-        if draft is None or not (draft.title or draft.detail).strip():
-            result[branch.branch_id] = _fallback_strategy(branch, event)
-            continue
+    for branch in branches:
+        draft = by_id[branch.branch_id]
+        if not all(v.strip() for v in (draft.title, draft.detail, draft.rationale)):
+            from prds.simulation.errors import SimulationFailure
+            raise SimulationFailure("strategy", branch_id=branch.branch_id, event_index=event_index,
+                                    code="invalid_output")
         result[branch.branch_id] = StrategyOption(
             branch_id=branch.branch_id,
             title=draft.title.strip() or draft.detail.strip()[:60],

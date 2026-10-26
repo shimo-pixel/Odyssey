@@ -1,4 +1,4 @@
-import { API, statusLabel, phaseLabel } from '../api.js';
+import { API, statusLabel, phaseLabel, TERMINAL_STATUSES, issueLabel } from '../api.js';
 import { pageShell } from '../layout.js';
 import { t } from '../i18n.js';
 import { mountResults } from './results.js';
@@ -92,6 +92,8 @@ async function refreshHistoryList() {
           <span>${Math.round(s.progress_pct || 0)}%</span>
         </div>
         ${['running', 'pending'].includes((s.status || '').toLowerCase()) ? progressBarHtml(s.progress_pct) : ''}
+        <p class="text-xs mt-2">${escapeHtml(s.failure ? issueLabel(s.failure) : s.error || '')}</p>
+        <p class="text-xs mt-2">${escapeHtml((s.warnings || []).map(issueLabel).join(' · '))}</p>
         <p class="text-[11px] text-outline mt-3">${formatTime(s.created_at)}</p>
       </a>
     `).join('');
@@ -149,7 +151,7 @@ export async function mountHistory(simId = null) {
       await mountResults(simId);
       return;
     }
-    if (st === 'failed') {
+    if (TERMINAL_STATUSES.has(st)) {
       renderRunningPanel(simId, status);
       return;
     }

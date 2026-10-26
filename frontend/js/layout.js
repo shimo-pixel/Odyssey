@@ -1,7 +1,7 @@
 import { t } from './i18n.js';
 import { getPrefs } from './prefs.js';
 import { icon } from './icons.js';
-import { API } from './api.js';
+import { API, statusLabel, issueLabel } from './api.js';
 
 function escapeHtml(s) {
   return String(s ?? '')
@@ -251,8 +251,8 @@ export async function refreshSidebarHistory(activeId = null, gen = sidebarRefres
             <div class="sb-hist-row ${active ? 'is-active' : ''}">
               <a href="#simulate/${encodeURIComponent(s.id)}"
                  class="sb-hist-item"
-                 title="${escapeHtml(title)}">
-                ${escapeHtml(title)}
+                 title="${escapeHtml([title, statusLabel(s.status), s.failure ? issueLabel(s.failure) : s.error, ...(s.warnings || []).map(issueLabel)].filter(Boolean).join(' · '))}">
+                ${escapeHtml(title)} <span class="text-xs text-outline">· ${escapeHtml(statusLabel(s.status))}</span>
               </a>
               <button type="button"
                 class="sb-hist-delete"

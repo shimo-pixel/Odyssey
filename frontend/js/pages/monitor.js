@@ -200,7 +200,7 @@ export function mountMonitor(simId) {
     document.getElementById('stat-alive').textContent = `${data.alive_agents} / ${data.total_agents}`;
     document.getElementById('stat-status').textContent = statusLabel(data.status);
 
-    const canPause = data.status === 'running' && data.phase === 'simulation';
+    const canPause = data.status === 'running' && data.phase === 'branch_sim';
     const nowPaused = data.status === 'paused';
     const pausePending = data.pause_pending;
 
@@ -231,7 +231,7 @@ export function mountMonitor(simId) {
       setRunningIcon('layers');
     }
 
-    if (data.current_event_index > lastEventIndex && data.phase === 'simulation') {
+    if (data.current_event_index > lastEventIndex && data.phase === 'branch_sim') {
       lastEventIndex = data.current_event_index;
       const label = t('unit.eventNth', { n: data.current_event_index });
       const feedKey = data.status === 'paused' ? 'monitor.feedPaused' : 'monitor.feedDone';
@@ -250,7 +250,7 @@ export function mountMonitor(simId) {
         setTimeout(() => { location.hash = `#results/${simId}`; }, 600);
       }
     } else if (data.status === 'failed') {
-      document.getElementById('rank-list').innerHTML = `<p class="text-error text-sm p-4">${data.error || t('status.failed')}</p>`;
+      document.getElementById('rank-list').innerHTML = `<p class="text-error text-sm p-4">${escapeHtml(data.error || t('status.failed'))}</p>`;
       pauseBtn?.classList.add('hidden');
       resumeBtn?.classList.add('hidden');
     }

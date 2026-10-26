@@ -116,7 +116,7 @@ async def test_generate_strategies_uses_one_call_for_all_branches(monkeypatch):
     assert len(calls) == 1
 
 
-async def test_generate_strategies_falls_back_when_the_model_fails(monkeypatch):
+async def test_generate_strategies_stops_when_the_model_fails(monkeypatch):
     llm = LLMClient(_settings())
 
     async def boom(system, user, model_class, model=None):
@@ -125,12 +125,9 @@ async def test_generate_strategies_falls_back_when_the_model_fails(monkeypatch):
     monkeypatch.setattr(llm, "structured_complete", boom)
     branches = _branches(3)
 
-    strategies = await _strategies(branches, llm=llm)
-
-    assert set(strategies) == {b.branch_id for b in branches}
-    for branch in branches:
-        assert strategies[branch.branch_id].rationality is branch.rationality
-        assert strategies[branch.branch_id].title
+    from prds.simulation.errors import SimulationFailure
+    with pytest.raises(SimulationFailure):
+        await _strategies(branches, llm=llm)
 
 
 def test_compute_goal_status_averages_metric_progress():
@@ -144,8 +141,7 @@ def test_compute_goal_status_averages_metric_progress():
     assert status.metric_progress["数学成绩"] == pytest.approx(0.5)
     assert status.metric_progress["每周学习小时"] == pytest.approx(1.0)
     assert status.progress == pytest.approx(0.75)
-    assert status.distance == pytest.approx(0.25)
-    assert status.metric_gaps["数学成绩"] == pytest.approx(8.0)
+    assert set(status.model_dump()) == {"progress", "metric_progress"}
 
 
 def test_compute_goal_status_clamps_and_ignores_unknown_metrics():
@@ -199,7 +195,7 @@ async def test_predict_state_fills_every_tracked_metric():
     assert state.goal_status.progress > 0
 
 
-async def test_predict_state_carries_metrics_forward_when_prediction_fails(monkeypatch):
+async def test_predict_state_stops_when_prediction_fails(monkeypatch):
     llm = LLMClient(_settings())
 
     async def boom(system, user, model_class, model=None):
@@ -209,22 +205,20 @@ async def test_predict_state_carries_metrics_forward_when_prediction_fails(monke
     branch = _branches(1)[0]
     previous = baseline_state(branch, SPECS, "起始处境")
 
-    state = await predict_state(
-        llm,
-        branch=branch,
-        event=_event(),
-        event_index=1,
-        total_events=6,
-        strategy=StrategyOption(branch_id=branch.branch_id, title="维持现状"),
-        previous=previous,
-        specs=SPECS,
-        goal=_goal(),
-        context="",
-    )
-
-    assert state.success is False
-    assert [m.value for m in state.metrics] == [62.0, 6.0]
-    assert state.narrative
+    from prds.simulation.errors import SimulationFailure
+    with pytest.raises(SimulationFailure):
+        await predict_state(
+            llm,
+            branch=branch,
+            event=_event(),
+            event_index=1,
+            total_events=6,
+            strategy=StrategyOption(branch_id=branch.branch_id, title="维持现状"),
+            previous=previous,
+            specs=SPECS,
+            goal=_goal(),
+            context="",
+        )
 
 
 def test_state_snapshot_is_self_describing_and_compact():
@@ -259,3 +253,49 @@ def test_baseline_snapshot_lists_start_and_target_values():
 
     assert "当前 62 分，目标 78 分" in snapshot
     assert "时间有限" in snapshot
+
+
+@pytest.mark.parametrize('invalid_kind', ['missing', 'renamed', 'duplicate', 'blank_reason', 'blank_narrative'])
+@pytest.mark.parametrize('recovers', [True, False])
+async def test_prediction_retries_incomplete_output(monkeypatch, invalid_kind, recovers):
+    import copy
+    import json
+    from unittest.mock import AsyncMock
+    from prds.simulation.errors import SimulationFailure
+
+    valid = {
+        'narrative': '状态发生变化',
+        'metrics': [{'name': s.name, 'value': 70, 'reason': '训练见效'} for s in SPECS],
+        'confidence': 0.7, 'success': False,
+    }
+    invalid = copy.deepcopy(valid)
+    if invalid_kind == 'missing':
+        invalid['metrics'].pop()
+    elif invalid_kind == 'renamed':
+        invalid['metrics'][0]['name'] = '改名后的指标'
+    elif invalid_kind == 'duplicate':
+        invalid['metrics'][1]['name'] = invalid['metrics'][0]['name']
+    elif invalid_kind == 'blank_reason':
+        invalid['metrics'][0]['reason'] = '   '
+    else:
+        invalid['narrative'] = '   '
+    replies = [invalid, valid] if recovers else [invalid] * 3
+    llm = LLMClient(_settings())
+    complete = AsyncMock(side_effect=[json.dumps(v, ensure_ascii=False) for v in replies])
+    monkeypatch.setattr(llm, 'complete', complete)
+    monkeypatch.setattr('prds.llm.client.asyncio.sleep', AsyncMock())
+    branch = _branches(1)[0]
+    kwargs = dict(branch=branch, event=_event(), event_index=4, total_events=6,
+                  strategy=StrategyOption(branch_id=branch.branch_id, title='测试策略'),
+                  previous=baseline_state(branch, SPECS, '起点'), specs=SPECS,
+                  goal=_goal(), context='')
+    if recovers:
+        state = await predict_state(llm, **kwargs)
+        assert [m.name for m in state.metrics] == [s.name for s in SPECS]
+        assert complete.await_count == 2
+    else:
+        with pytest.raises(SimulationFailure) as error:
+            await predict_state(llm, **kwargs)
+        assert error.value.issue.event_index == 4
+        assert error.value.issue.stage == 'prediction'
+        assert complete.await_count == 3

@@ -1,4 +1,4 @@
-import { API, actionLabel, apiOrigin, resolveDomainId } from '../api.js';
+import { API, actionLabel, apiOrigin, resolveDomainId, issueLabel } from '../api.js';
 import { pageShell } from '../layout.js';
 import { t } from '../i18n.js';
 import { icon } from '../icons.js';
@@ -17,14 +17,15 @@ export function renderResults(simId) {
   `, { sidebarActive: 'history', simId });
 }
 
-export async function mountResults(simId, rootEl = null) {
+export async function mountResults(simId, rootEl = null, { signal } = {}) {
   const root = rootEl || document.getElementById('results-root') || document.getElementById('sim-workspace');
   if (!root) return;
   try {
     const [result, decisions] = await Promise.all([
-      API.getResult(simId),
-      API.getDecisions(simId, PATH_FETCH_LIMIT).catch(() => ({ paths: [], event_comparisons: [] })),
+      API.getResult(simId, { signal }),
+      API.getDecisions(simId, PATH_FETCH_LIMIT, { signal }).catch(() => ({ paths: [], event_comparisons: [] })),
     ]);
+    if (!root.isConnected || signal?.aborted) return;
     const paths = decisions.paths?.length ? decisions.paths : result.agent_paths || [];
     const eventComparisons = decisions.event_comparisons?.length
       ? decisions.event_comparisons
@@ -38,6 +39,7 @@ export async function mountResults(simId, rootEl = null) {
     mountInteractions(eventItems, result.champion_agent_id, domainId);
     mountBranchGraph(result.branches || []);
   } catch (e) {
+    if (!root.isConnected || signal?.aborted) return;
     root.innerHTML = `<div class="glass-panel p-8 text-center"><p class="text-error font-bold">${t('results.loadFailed')}</p>
       <p class="text-sm text-on-surface-variant mt-2">${escapeHtml(e.message)}</p>
       <a href="#simulate" class="inline-block mt-4 text-primary font-bold">${t('sidebar.newRun')}</a></div>`;
@@ -137,6 +139,8 @@ function buildResultsHTML(r, paths, eventComparisons, eventItems, domainId = 'st
         </p>`}
     </header>
 
+    <p class="text-sm mb-4">${t('run.model')}: ${escapeHtml(r.model_info?.model || t('run.modelUnknown'))}</p>
+    ${(r.warnings || []).map(w => `<p role="status" class="text-sm text-tertiary glass-panel p-4 mb-4">${escapeHtml(issueLabel(w))}</p>`).join('')}
     ${renderResearchSection(r.world_background)}
 
     <section class="mb-10 grid grid-cols-1 lg:grid-cols-12 gap-6">
@@ -148,6 +152,7 @@ function buildResultsHTML(r, paths, eventComparisons, eventItems, domainId = 'st
           </h2>
           <span class="text-[10px] font-bold text-on-surface-variant">${t('results.eventCount', { n: eventItems.length })}</span>
         </div>
+        <p class="text-xs text-on-surface-variant mb-3">${t('results.eventHint')}</p>
         <div id="event-list" class="space-y-2 max-h-[620px] overflow-y-auto custom-scrollbar pr-1">
           ${eventItems.length
             ? eventItems.map(item => eventListItem(item, championId, domainId)).join('')

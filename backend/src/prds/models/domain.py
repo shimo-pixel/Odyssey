@@ -8,7 +8,7 @@ except ImportError:  # Python < 3.11
 
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict, model_validator
 
 
 class EventCategory(StrEnum):
@@ -43,6 +43,8 @@ class SimulationStatus(StrEnum):
     PENDING = "pending"
     RUNNING = "running"
     PAUSED = "paused"
+    CANCELLED = "cancelled"
+    INTERRUPTED = "interrupted"
     COMPLETED = "completed"
     FAILED = "failed"
 
@@ -63,6 +65,8 @@ class ResourceSnapshot(BaseModel):
 
 class MetricSpec(BaseModel):
     """One measurable dimension of the goal, derived from goal + knowledge base."""
+
+    model_config = ConfigDict(allow_inf_nan=False)
 
     name: str
     unit: str = ""
@@ -116,8 +120,31 @@ class SimulationConfig(BaseModel):
         default_factory=list,
         description="LightRAG workspace / KB category ids the simulation is grounded in",
     )
+    model_id: str | None = None
     llm_model: str | None = None
     llm_model_analysis: str | None = None
+
+
+    @model_validator(mode="after")
+    def validate_model_selection(self):
+        if self.model_id and (self.llm_model or self.llm_model_analysis):
+            raise ValueError("model_id cannot be combined with legacy model overrides")
+        return self
+
+
+class ModelInfo(BaseModel):
+    model_id: str | None = None
+    name: str = ""
+    model: str = ""
+    analysis_model: str = ""
+    provider: str = ""
+
+
+class SimulationIssue(BaseModel):
+    code: str
+    stage: str = ""
+    branch_id: str | None = None
+    event_index: int | None = None
 
 
 class SimulationInput(BaseModel):
@@ -155,12 +182,10 @@ class KnowledgeGraphData(BaseModel):
 
 
 class GoalStatus(BaseModel):
-    """Distance to the simulation goal after a decision step."""
+    """Goal completion progress after a decision step."""
 
     progress: float = Field(default=0.0, ge=0.0, le=1.0, description="Overall goal completion ratio")
-    distance: float = Field(default=1.0, ge=0.0, le=1.0, description="1 - progress")
     metric_progress: dict[str, float] = Field(default_factory=dict)
-    metric_gaps: dict[str, float] = Field(default_factory=dict, description="Remaining amount per metric")
 
 
 class BranchProfile(BaseModel):
@@ -220,6 +245,7 @@ class StateTraceEntry(BaseModel):
 
     event_index: int
     event_id: str = ""
+    events: list[Event] = Field(default_factory=list)
     branch_id: str
     strategy: StrategyOption
     state: BranchStateUpdate
@@ -315,6 +341,8 @@ class EventAgentDecision(BaseModel):
 
 
 class EventSummary(BaseModel):
+    event_id: str = ""
+    severity: float = 0.0
     event_type: str
     description: str = ""
     impact: float = 0.0
@@ -380,6 +408,8 @@ class OutcomeDistribution(BaseModel):
 
 class SimulationResult(BaseModel):
     simulation_id: str
+    model_info: ModelInfo | None = None
+    warnings: list[SimulationIssue] = Field(default_factory=list)
     domain_id: str = "startup"
     agent_count: int = 0
     events_simulated: int = 0
@@ -408,5 +438,9 @@ class SimulationProgress(BaseModel):
     total_agents: int
     progress_pct: float
     error: str | None = None
+    model_info: ModelInfo | None = None
+    warnings: list[SimulationIssue] = Field(default_factory=list)
+    failure: SimulationIssue | None = None
+    can_pause: bool = False
     pause_pending: bool = False
     pending_user_events: int = 0

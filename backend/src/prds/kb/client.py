@@ -12,6 +12,7 @@ from typing import Any
 import httpx
 
 from prds.config import Settings, get_settings
+from prds.simulation.tasks import gather_owned
 
 logger = logging.getLogger(__name__)
 
@@ -73,14 +74,15 @@ class LightRAGClient:
         async with self._client() as client:
             r = await client.get("/workspaces")
             if r.status_code >= 400:
-                logger.warning("list workspaces failed: %s %s", r.status_code, r.text[:200])
-                return []
+                r.raise_for_status()
             data = r.json()
             if isinstance(data, list):
                 return data
             if isinstance(data, dict):
-                return data.get("workspaces") or data.get("items") or []
-            return []
+                for key in ("workspaces", "items"):
+                    if isinstance(data.get(key), list):
+                        return data[key]
+            raise RuntimeError("Invalid workspace listing response")
 
     async def create_workspace(self, workspace_id: str, name: str | None = None) -> dict[str, Any]:
         wid = normalize_workspace_id(workspace_id)
@@ -119,7 +121,10 @@ class LightRAGClient:
                     request=r.request,
                     response=r,
                 )
-            return r.json() if r.content else {"status": "ok"}
+            result = r.json() if r.content else {"status": "ok"}
+            if result.get("status") not in ("ok", "success", "deleted"):
+                raise RuntimeError("Workspace deletion was not completed")
+            return result
 
     async def clear_documents(self, *, workspace: str | None = None) -> dict[str, Any]:
         """Remove all documents and graph data from a workspace."""
@@ -162,8 +167,7 @@ class LightRAGClient:
         async with self._client() as client:
             r = await client.get("/documents", headers=self._ws_headers(workspace))
             if r.status_code >= 400:
-                logger.warning("LightRAG list documents failed: %s %s", r.status_code, r.text[:200])
-                return {"statuses": {}}
+                r.raise_for_status()
             return r.json()
 
     async def delete_document(self, doc_id: str, *, workspace: str | None = None) -> dict[str, Any]:
@@ -212,8 +216,7 @@ class LightRAGClient:
                 f"/documents/track_status/{track_id}",
                 headers=self._ws_headers(workspace),
             )
-            if r.status_code >= 400:
-                return {}
+            r.raise_for_status()
             return r.json() if r.content else {}
 
     async def wait_indexed(
@@ -226,13 +229,14 @@ class LightRAGClient:
     ) -> bool:
         """Poll a track id until every document reaches a terminal status.
 
-        Returns True when indexing finished, False on timeout — a timeout is
-        not fatal for the simulation, the branch simply keeps the older graph.
+        Returns True only when every document was processed successfully.
         """
         deadline = asyncio.get_running_loop().time() + timeout
         delay = poll_interval
         while asyncio.get_running_loop().time() < deadline:
-            data = await self.track_status(track_id, workspace=workspace)
+            remaining = deadline - asyncio.get_running_loop().time()
+            async with asyncio.timeout(max(0.001, remaining)):
+                data = await self.track_status(track_id, workspace=workspace)
             documents = data.get("documents") if isinstance(data, dict) else None
             if isinstance(documents, list) and documents:
                 statuses = {
@@ -240,7 +244,9 @@ class LightRAGClient:
                     for doc in documents
                     if isinstance(doc, dict)
                 }
-                if statuses and statuses <= TERMINAL_DOC_STATUSES:
+                if "failed" in statuses:
+                    raise RuntimeError("Knowledge-base indexing failed")
+                if statuses == {"processed"}:
                     return True
             await asyncio.sleep(delay)
             delay = min(delay * 1.5, 3.0)
@@ -266,24 +272,48 @@ class LightRAGClient:
         that document contributed, which is how a branch's stale state is
         pruned from the graph while the original uploads stay untouched.
         """
-        doc_id = doc_id_for_source(file_source)
-        try:
-            await self.delete_document(doc_id, workspace=workspace)
-        except httpx.HTTPStatusError as exc:
-            # A missing previous revision is expected on the first round.
-            logger.debug("state snapshot delete skipped (%s): %s", workspace, exc)
+        async with asyncio.timeout(timeout):
+            doc_id = doc_id_for_source(file_source)
+            for attempt in range(3):
+                try:
+                    deletion = await self.delete_document(doc_id, workspace=workspace)
+                except httpx.HTTPStatusError as exc:
+                    if exc.response.status_code != 404:
+                        raise
+                    deletion = {"status": "not_found"}
+                if deletion.get("status") == "not_allowed":
+                    raise RuntimeError("Snapshot deletion is not allowed")
+                if deletion.get("status") in ("busy", "deletion_started"):
+                    await self.wait_pipeline_idle(workspace=workspace)
+                    if deletion["status"] == "busy":
+                        if attempt == 2:
+                            raise RuntimeError("Snapshot deletion remained busy")
+                        continue
+                    documents = await self.list_documents(workspace=workspace)
+                    if any(doc.get("id") == doc_id
+                           for group in documents.get("statuses", {}).values()
+                           for doc in group):
+                        raise RuntimeError("Previous snapshot was not deleted")
+                break
+            response = await self.insert_text(text, file_source, workspace=workspace)
+            track_id = str(response.get("track_id") or "")
+            if not wait or not track_id:
+                return bool(track_id)
+            return await self.wait_indexed(track_id, workspace=workspace, timeout=timeout)
 
-        response = await self.insert_text(text, file_source, workspace=workspace)
-        track_id = str(response.get("track_id") or "")
-        if not wait or not track_id:
-            return bool(track_id)
-        return await self.wait_indexed(track_id, workspace=workspace, timeout=timeout)
+    async def wait_pipeline_idle(self, *, workspace: str) -> None:
+        while True:
+            status = await self.pipeline_status(workspace=workspace)
+            if "busy" not in status:
+                raise RuntimeError("Invalid knowledge-base pipeline status")
+            if not status["busy"]:
+                return
+            await asyncio.sleep(0.3)
 
     async def pipeline_status(self, *, workspace: str | None = None) -> dict[str, Any]:
         async with self._client() as client:
             r = await client.get("/documents/pipeline_status", headers=self._ws_headers(workspace))
-            if r.status_code >= 400:
-                return {}
+            r.raise_for_status()
             return r.json()
 
     async def query_data(
@@ -334,8 +364,7 @@ class LightRAGClient:
         if not isinstance(data, dict):
             data = result if isinstance(result, dict) else {}
         lines: list[str] = []
-        if workspace:
-            lines.append(f"### Workspace: {workspace}")
+
 
         entities = data.get("entities") or []
         if isinstance(entities, list) and entities:
@@ -371,7 +400,8 @@ class LightRAGClient:
                 if text:
                     lines.append(f"- {text[:800]}")
 
-        return "\n".join(lines).strip()
+        formatted = "\n".join(lines).strip()
+        return f"### Workspace: {workspace}\n{formatted}" if workspace and formatted else formatted
 
     async def retrieve_context(
         self,
@@ -391,22 +421,20 @@ class LightRAGClient:
             return ""
 
         async def one(wid: str) -> str:
-            try:
-                result = await self.query_data(
-                    query,
-                    workspace=wid,
-                    mode=mode,
-                    top_k=top_k,
-                    chunk_top_k=chunk_top_k,
-                    hl_keywords=hl_keywords,
-                    ll_keywords=ll_keywords,
-                )
-                return self.format_query_data(result, workspace=wid)
-            except Exception as exc:
-                logger.warning("LightRAG context query failed for %s: %s", wid, exc)
-                return ""
-
-        blocks = await asyncio.gather(*(one(wid) for wid in ids))
+            for attempt in range(3):
+                try:
+                    result = await self.query_data(
+                        query, workspace=wid, mode=mode, top_k=top_k,
+                        chunk_top_k=chunk_top_k, hl_keywords=hl_keywords, ll_keywords=ll_keywords,
+                    )
+                    if result.get("status") in ("failure", "failed", "error"):
+                        raise RuntimeError("Knowledge-base query failed")
+                    return self.format_query_data(result, workspace=wid)
+                except (httpx.RequestError, httpx.HTTPStatusError):
+                    if attempt == 2:
+                        raise
+                    await asyncio.sleep(0.5 * (attempt + 1))
+        blocks = await gather_owned(*(one(wid) for wid in ids))
         merged = "\n\n".join(b for b in blocks if b).strip()
         if len(merged) > max_chars:
             return merged[: max_chars - 1] + "…"

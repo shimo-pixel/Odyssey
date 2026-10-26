@@ -3,18 +3,19 @@ import shutil
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import inspect, select, text
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy import inspect, select, text, update
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from prds.config import Settings, get_settings
 from prds.models.domain import (
     BranchStateUpdate,
+    ModelInfo,
+    SimulationIssue,
     SimulationInput,
     SimulationPhase,
     SimulationProgress,
     SimulationResult,
     SimulationStatus,
-    UserEventInput,
 )
 from prds.simulation.control import get_control
 from prds.storage.models import Base, ChatMessage, ChatSession, SimulationRun
@@ -48,6 +49,14 @@ def _migrate_simulation_runs(sync_conn) -> None:
             sync_conn.execute(
                 text("ALTER TABLE simulation_runs ADD COLUMN total_events INTEGER NOT NULL DEFAULT 0")
             )
+
+    for name, definition in {
+        "model_info_json": "TEXT",
+        "warnings_json": "TEXT NOT NULL DEFAULT '[]'",
+        "failure_json": "TEXT",
+    }.items():
+        if name not in cols:
+            sync_conn.execute(text(f"ALTER TABLE simulation_runs ADD COLUMN {name} {definition}"))
 
 
 def _migrate_kb_documents(sync_conn) -> None:
@@ -93,7 +102,7 @@ class SimulationRepository:
             await conn.run_sync(_migrate_kb_documents)
             await conn.run_sync(_migrate_kb_categories)
 
-    async def create_run(self, simulation_input: SimulationInput) -> str:
+    async def create_run(self, simulation_input: SimulationInput, model_info: ModelInfo | None = None) -> str:
         run_id = str(uuid.uuid4())
         config = simulation_input.config
         async with self.session_factory() as session:
@@ -105,6 +114,7 @@ class SimulationRepository:
                 total_agents=config.agent_count,
                 alive_agents=config.agent_count,
                 input_json=simulation_input.model_dump_json(),
+                model_info_json=model_info.model_dump_json() if model_info else None,
             )
             session.add(run)
             await session.commit()
@@ -120,11 +130,22 @@ class SimulationRepository:
         alive_agents: int | None = None,
         progress_pct: float | None = None,
         error: str | None = None,
+        warnings: list[SimulationIssue] | None = None,
+        failure: SimulationIssue | None = None,
+        total_events: int | None = None,
     ) -> None:
         async with self.session_factory() as session:
             run = await session.get(SimulationRun, run_id)
             if not run:
                 return
+            if run.status in ("cancelled", "interrupted", "completed", "failed"):
+                return
+            if total_events is not None:
+                run.total_events = total_events
+            if warnings is not None:
+                run.warnings_json = json.dumps([w.model_dump() for w in warnings])
+            if failure:
+                run.failure_json = failure.model_dump_json()
             if status:
                 run.status = status.value
             if phase:
@@ -145,11 +166,23 @@ class SimulationRepository:
             run = await session.get(SimulationRun, run_id)
             if not run:
                 return
+            if run.status in ("cancelled", "interrupted", "failed"):
+                return
+            result.model_info = ModelInfo.model_validate_json(run.model_info_json) if run.model_info_json else None
+            run.warnings_json = json.dumps([w.model_dump() for w in result.warnings])
             run.result_json = result.model_dump_json()
             run.status = SimulationStatus.COMPLETED.value
             run.phase = SimulationPhase.COMPLETED.value
             run.progress_pct = 100.0
             run.updated_at = datetime.now(timezone.utc)
+            await session.commit()
+
+    async def interrupt_active_runs(self) -> None:
+        async with self.session_factory() as session:
+            await session.execute(update(SimulationRun).where(
+                SimulationRun.status.in_(["pending", "running", "paused"])
+            ).values(status="interrupted", error="Service interrupted; run again to continue.",
+                     updated_at=datetime.now(timezone.utc)))
             await session.commit()
 
     async def list_runs(self, limit: int = 50) -> list[SimulationRun]:
@@ -198,6 +231,10 @@ class SimulationRepository:
             total_agents=run.total_agents,
             progress_pct=run.progress_pct,
             error=run.error,
+            model_info=ModelInfo.model_validate_json(run.model_info_json) if run.model_info_json else None,
+            warnings=[SimulationIssue.model_validate(w) for w in json.loads(run.warnings_json or "[]")],
+            failure=SimulationIssue.model_validate_json(run.failure_json) if run.failure_json else None,
+            can_pause=(run.status == "running" and run.phase == "branch_sim" and control.can_pause(run_id)),
             pause_pending=control.is_pause_requested(run_id),
             pending_user_events=control.pending_event_count(run_id),
         )
@@ -224,7 +261,7 @@ class SimulationRepository:
         event_index: int,
         states: list[BranchStateUpdate],
     ) -> None:
-        """Persist a mid-run snapshot of every branch's state for crash recovery."""
+        """Persist a diagnostic snapshot; this is not a resumable checkpoint."""
         checkpoint_dir = self.settings.logs_path / run_id
         checkpoint_dir.mkdir(parents=True, exist_ok=True)
         payload = {

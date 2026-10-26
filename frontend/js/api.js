@@ -16,21 +16,41 @@ function url(path) {
   return `${base}${p}`;
 }
 
-async function fetchJson(path, { timeoutMs = 15000, ...init } = {}) {
+async function fetchJson(path, { timeoutMs = 15000, signal, ...init } = {}) {
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  const abort = () => ctrl.abort();
+  signal?.addEventListener('abort', abort, { once: true });
+  if (signal?.aborted) abort();
+  const timer = setTimeout(abort, timeoutMs);
   try {
     const r = await fetch(url(path), { ...init, signal: ctrl.signal });
-    if (!r.ok) throw new Error(await r.text());
-    return r.json();
-  } catch (e) {
-    if (e?.name === 'AbortError') {
-      throw new Error(t('common.requestTimeout'));
+    if (!r.ok) {
+      let detail = await r.text();
+      try { detail = JSON.parse(detail).detail || detail; } catch (_) {}
+      const error = new Error(detail);
+      error.status = r.status;
+      throw error;
     }
+    return await r.json();
+  } catch (e) {
+    if (e?.name === 'AbortError' && !signal?.aborted) throw new Error(t('common.requestTimeout'));
     throw e;
   } finally {
     clearTimeout(timer);
+    signal?.removeEventListener('abort', abort);
   }
+}
+
+export const TERMINAL_STATUSES = new Set(['completed', 'failed', 'cancelled', 'interrupted']);
+
+export function issueLabel(issue) {
+  if (!issue) return '';
+  const key = `issue.${issue.code}`;
+  const message = t(key) === key ? t('issue.stage_failed') : t(key);
+  const phase = issue.stage ? ` · ${phaseLabel(issue.stage)}` : '';
+  const branch = issue.branch_id ? ` · ${issue.branch_id}` : '';
+  const event = issue.event_index ? ` · ${t('unit.eventNth', { n: issue.event_index })}` : '';
+  return message + phase + branch + event;
 }
 
 export const API = {
@@ -292,7 +312,7 @@ export const API = {
   async deleteSimulation(id) {
     return fetchJson(`/simulations/${encodeURIComponent(id)}`, {
       method: 'DELETE',
-      timeoutMs: 20000,
+      timeoutMs: 35000,
     });
   },
 
@@ -306,22 +326,27 @@ export const API = {
     return r.json();
   },
 
-  async getStatus(id) {
-    const r = await fetch(url(`/simulations/${id}`));
-    if (!r.ok) throw new Error(await r.text());
-    return r.json();
+  async getStatus(id, { signal } = {}) {
+    return fetchJson(`/simulations/${encodeURIComponent(id)}`, { timeoutMs: 10000, signal });
   },
 
-  async getResult(id) {
-    const r = await fetch(url(`/simulations/${id}/result`));
-    if (!r.ok) throw new Error(await r.text());
-    return r.json();
+  async cancelSimulation(id) {
+    return fetchJson(`/simulations/${encodeURIComponent(id)}/cancel`, { method: 'POST', timeoutMs: 15000 });
   },
 
-  async getDecisions(id, limit = 10) {
-    const r = await fetch(url(`/simulations/${id}/decisions?limit=${limit}`));
-    if (!r.ok) throw new Error(await r.text());
-    return r.json();
+  async retrySimulation(id, modelId = null) {
+    return fetchJson(`/simulations/${encodeURIComponent(id)}/retry`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(modelId ? { model_id: modelId } : {}),
+    });
+  },
+
+  async getResult(id, { signal } = {}) {
+    return fetchJson(`/simulations/${encodeURIComponent(id)}/result`, { signal });
+  },
+
+  async getDecisions(id, limit = 10, { signal } = {}) {
+    return fetchJson(`/simulations/${encodeURIComponent(id)}/decisions?limit=${limit}`, { signal });
   },
 
   async getKnowledgeGraph(id) {
@@ -342,10 +367,8 @@ export const API = {
     return r.json();
   },
 
-  async getUserEvents(id) {
-    const r = await fetch(url(`/simulations/${id}/events`));
-    if (!r.ok) throw new Error(await r.text());
-    return r.json();
+  async getUserEvents(id, { signal } = {}) {
+    return fetchJson(`/simulations/${encodeURIComponent(id)}/events`, { signal });
   },
 
   async addUserEvent(id, event) {
@@ -364,19 +387,45 @@ export const API = {
     return r.json();
   },
 
-  pollStatus(id, onUpdate, intervalMs = 1500) {
-    const timer = setInterval(async () => {
+  pollStatus(id, onUpdate, options = {}) {
+    if (typeof options === 'number') options = { intervalMs: options };
+    const { intervalMs = 1500, onConnection = () => {} } = options;
+    let stopped = false, timer = null, controller = null, failures = 0, lastUpdated = null, busy = false;
+    const tick = async () => {
+      if (stopped || busy) return;
+      busy = true;
+      controller = new AbortController();
+      let delay = intervalMs;
       try {
-        const data = await API.getStatus(id);
-        onUpdate(data);
-        if (data.status === 'completed' || data.status === 'failed') {
-          clearInterval(timer);
-        }
-      } catch (e) {
-        console.error(e);
+        const data = await API.getStatus(id, { signal: controller.signal });
+        if (stopped) return;
+        failures = 0;
+        lastUpdated = new Date();
+        await onUpdate(data);
+        if (stopped) return;
+        onConnection({ state: 'connected', lastUpdated });
+        if (TERMINAL_STATUSES.has(data.status)) stopped = true;
+      } catch (error) {
+        if (stopped) return;
+        failures += 1;
+        const missing = error.status === 404;
+        const exhausted = failures >= 5;
+        onConnection({ state: missing ? 'missing' : exhausted ? 'disconnected' : 'retrying',
+          lastUpdated, failures, error });
+        if (missing || exhausted) stopped = true;
+        delay = [3000, 6000, 12000, 24000, 30000][Math.min(failures - 1, 4)];
+      } finally {
+        busy = false;
+        if (!stopped) timer = setTimeout(tick, delay);
       }
-    }, intervalMs);
-    return () => clearInterval(timer);
+    };
+    const stop = () => { stopped = true; clearTimeout(timer); controller?.abort(); };
+    stop.reconnect = () => {
+      if (busy) return;
+      clearTimeout(timer); stopped = false; failures = 0; void tick();
+    };
+    void tick();
+    return stop;
   },
 };
 
@@ -411,6 +460,7 @@ export function buildPayload(form) {
         : {},
     },
     config: {
+      model_id: form.modelId || null,
       domain_id: 'startup',
       agent_count: Number(form.agentCount) || prefs.defaultAgentCount || DEFAULT_STRATEGY_COUNT,
       max_events: Number(form.maxEvents) || prefs.defaultMaxEvents || DEFAULT_EVENT_COUNT,

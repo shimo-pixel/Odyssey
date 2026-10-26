@@ -13,7 +13,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from prds.kb.settings_store import get_model_entry, settings_from_model_entry
-from prds.llm.model_config import configure_litellm, normalize_litellm_model
+from prds.llm.model_config import normalize_litellm_model, resolve_llm_api_base
 from prds.storage.repository import SimulationRepository
 
 logger = logging.getLogger(__name__)
@@ -222,7 +222,6 @@ async def _prepare_chat_turn(payload: ChatAnswerRequest) -> _PreparedChatTurn:
     await repo.append_chat_message(session_id, role="user", content=message)
 
     settings = settings_from_model_entry(entry)
-    configure_litellm(settings)
     model = normalize_litellm_model(entry["model"], settings)
 
     llm_messages: list[dict[str, str]] = [{"role": "system", "content": SYSTEM_PROMPT}]
@@ -236,6 +235,7 @@ async def _prepare_chat_turn(payload: ChatAnswerRequest) -> _PreparedChatTurn:
         "messages": llm_messages,
         "max_tokens": ANSWER_MAX_TOKENS,
         "api_key": entry.get("api_key") or None,
+        "api_base": resolve_llm_api_base(settings, entry["model"]),
     }
     api_base = (entry.get("api_base") or "").strip()
     if api_base:

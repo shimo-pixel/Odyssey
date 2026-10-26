@@ -138,16 +138,14 @@ async def test_retrieve_context_merges_workspaces_and_truncates():
 
 
 @pytest.mark.asyncio
-async def test_retrieve_context_skips_failing_workspace():
+async def test_retrieve_context_rejects_partial_failure():
     def handler(request: httpx.Request) -> httpx.Response:
         if request.headers.get("LIGHTRAG-WORKSPACE") == "broken":
             return httpx.Response(500, text="boom")
         return httpx.Response(200, json={"data": {"chunks": [{"content": "有效上下文"}]}})
 
-    merged = await _client(handler).retrieve_context("查询", ["broken", "healthy"])
-
-    assert "有效上下文" in merged
-    assert "Workspace: healthy" in merged
+    with pytest.raises(httpx.HTTPStatusError):
+        await _client(handler).retrieve_context("查询", ["broken", "healthy"])
 
 
 @pytest.mark.asyncio

@@ -15,6 +15,8 @@ from pathlib import Path
 from prds.config import Settings
 from prds.kb.client import LightRAGClient, normalize_workspace_id
 from prds.models.domain import BranchProfile, Rationality
+from prds.simulation.tasks import gather_owned
+from prds.simulation.errors import SimulationFailure
 
 logger = logging.getLogger(__name__)
 
@@ -132,7 +134,7 @@ class BranchManager:
                 )
             )
 
-        await asyncio.gather(
+        await gather_owned(
             *(self._prepare_branch(b, sources, baseline_doc) for b in branches)
         )
         logger.info(
@@ -148,56 +150,28 @@ class BranchManager:
         self, branch: BranchProfile, sources: list[str], baseline_doc: str
     ) -> None:
         async with self._semaphore:
-            if self.forked and sources:
-                copies: list[str] = []
-                for source_id in sources:
-                    target = self._branch_workspace_id(branch.index, source_id)
-                    try:
-                        await self.client.copy_workspace(
-                            source_id, target, f"{branch.label} · {source_id}"
-                        )
-                        copies.append(target)
-                    except Exception as exc:
-                        logger.warning(
-                            "Failed to copy workspace %s for %s: %s",
-                            source_id,
-                            branch.branch_id,
-                            exc,
-                        )
-                if copies:
-                    branch.workspaces = copies
-                    branch.primary_workspace = copies[0]
+            try:
+                if self.forked and sources:
+                    for source_id in sources:
+                        target = self._branch_workspace_id(branch.index, source_id)
+                        await self.client.copy_workspace(source_id, target, f"{branch.label} · {source_id}")
+                        branch.workspaces.append(target)
+                    branch.primary_workspace = branch.workspaces[0]
                 else:
-                    # Copying failed everywhere: fall back to reading the originals.
-                    self.forked = False
-
-            if not branch.primary_workspace:
-                # Either nothing was selected or forking was skipped: the branch
-                # gets a small private workspace that only holds its state, and
-                # reads the untouched sources alongside it.
-                target = self._branch_workspace_id(branch.index, "state")
-                try:
+                    target = self._branch_workspace_id(branch.index, "state")
                     await self.client.create_workspace(target, f"{branch.label} · state")
                     branch.primary_workspace = target
                     branch.workspaces = [target]
-                except Exception as exc:
-                    logger.warning(
-                        "Failed to create state workspace for %s: %s", branch.branch_id, exc
-                    )
-                branch.read_only_workspaces = list(sources)
-
-            if branch.primary_workspace and baseline_doc.strip():
-                try:
-                    await self.client.replace_document(
-                        baseline_doc,
-                        BASELINE_SOURCE,
-                        workspace=branch.primary_workspace,
+                    branch.read_only_workspaces = list(sources)
+                if baseline_doc.strip():
+                    ok = await self.client.replace_document(
+                        baseline_doc, BASELINE_SOURCE, workspace=branch.primary_workspace,
                         timeout=self.settings.prds_kbsim_index_timeout_s,
                     )
-                except Exception as exc:
-                    logger.warning(
-                        "Failed to seed baseline into %s: %s", branch.primary_workspace, exc
-                    )
+                    if not ok:
+                        raise ValueError("Baseline indexing failed")
+            except Exception as exc:
+                raise SimulationFailure("branch_fork", branch_id=branch.branch_id) from exc
 
     # ---------- retrieval ----------
 
@@ -214,37 +188,33 @@ class BranchManager:
     ) -> str:
         workspaces = self.read_workspaces(branch)
         if not workspaces:
-            return ""
+            raise SimulationFailure("retrieval", branch_id=branch.branch_id)
         async with self._semaphore:
-            return await self.client.retrieve_context(
-                query,
-                workspaces,
-                max_chars=self.settings.prds_kbsim_retrieval_chars,
-                hl_keywords=hl_keywords,
-                ll_keywords=ll_keywords,
-            )
+            try:
+                return await self.client.retrieve_context(
+                    query, workspaces, max_chars=self.settings.prds_kbsim_retrieval_chars,
+                    hl_keywords=hl_keywords, ll_keywords=ll_keywords,
+                )
+            except Exception as exc:
+                raise SimulationFailure("retrieval", branch_id=branch.branch_id) from exc
 
     # ---------- state write-back ----------
 
     async def write_state(self, branch: BranchProfile, snapshot: str) -> bool:
         """Replace the branch's state snapshot, pruning the previous graph slice."""
         if not branch.primary_workspace or not snapshot.strip():
-            return False
+            raise SimulationFailure("write_state", branch_id=branch.branch_id)
         async with self._semaphore:
             try:
-                return await self.client.replace_document(
-                    snapshot,
-                    STATE_SOURCE,
-                    workspace=branch.primary_workspace,
+                ok = await self.client.replace_document(
+                    snapshot, STATE_SOURCE, workspace=branch.primary_workspace,
                     timeout=self.settings.prds_kbsim_index_timeout_s,
                 )
+                if not ok:
+                    raise ValueError("State indexing failed")
+                return True
             except Exception as exc:
-                logger.warning(
-                    "Failed to write state snapshot into %s: %s",
-                    branch.primary_workspace,
-                    exc,
-                )
-                return False
+                raise SimulationFailure("write_state", branch_id=branch.branch_id) from exc
 
     def should_reindex(self, event_index: int, total_events: int) -> bool:
         """Write back every N events, always on the final one."""
@@ -258,31 +228,14 @@ class BranchManager:
         targets = [w for b in branches for w in b.workspaces]
         if not targets:
             return
-        results = await asyncio.gather(
-            *(self.client.delete_workspace(w) for w in targets), return_exceptions=True
-        )
-        for target, result in zip(targets, results):
-            if isinstance(result, Exception):
-                logger.warning("Failed to delete branch workspace %s: %s", target, result)
+        await gather_owned(*(self.client.delete_workspace(w) for w in targets))
 
 
-async def delete_simulation_branches(
-    client: LightRAGClient, simulation_id: str
-) -> list[str]:
-    """Remove every branch workspace belonging to a simulation."""
+async def delete_simulation_branches(client: LightRAGClient, simulation_id: str) -> list[str]:
+    """Only report success after every matching workspace was removed."""
     prefix = f"sim_{normalize_workspace_id(simulation_id)[:18]}_b"
-    try:
-        workspaces = await client.list_workspaces()
-    except Exception as exc:
-        logger.warning("Could not list workspaces for cleanup: %s", exc)
-        return []
-    targets = [
-        str(w.get("id"))
-        for w in workspaces
-        if isinstance(w, dict) and str(w.get("id", "")).startswith(prefix)
-    ]
-    results = await asyncio.gather(
-        *(client.delete_workspace(t) for t in targets), return_exceptions=True
-    )
-    deleted = [t for t, r in zip(targets, results) if not isinstance(r, Exception)]
-    return deleted
+    workspaces = await client.list_workspaces()
+    targets = [str(w["id"]) for w in workspaces
+               if isinstance(w, dict) and str(w.get("id", "")).startswith(prefix)]
+    await gather_owned(*(client.delete_workspace(t) for t in targets))
+    return targets

@@ -470,7 +470,7 @@ async def set_default_llm_model(model_id: str) -> LlmModelsCatalogPublic:
     return await list_llm_models()
 
 
-async def get_model_entry(model_id: str | None = None) -> dict[str, Any] | None:
+async def get_model_entry(model_id: str | None = None, *, strict: bool = False) -> dict[str, Any] | None:
     catalog = await _ensure_catalog_seeded()
     models = catalog.get("models") or []
     if not models:
@@ -480,8 +480,17 @@ async def get_model_entry(model_id: str | None = None) -> dict[str, Any] | None:
         found = next((m for m in models if m.get("id") == mid), None)
         if found:
             return found
+    if strict and model_id:
+        return None
     return models[0]
 
 
 def settings_from_model_entry(entry: dict[str, Any]) -> Settings:
-    return apply_overrides_to_settings(get_settings(), _overrides_from_entry(entry))
+    # Each selected entry owns its credentials; never inherit another model's key.
+    data = get_settings().model_dump()
+    data.update(openai_api_key=entry.get("api_key") or "",
+                deepseek_api_key=entry.get("api_key") or "",
+                prds_llm_model=entry["model"], prds_llm_model_analysis=entry["model"],
+                prds_llm_api_base=entry.get("api_base") or "",
+                prds_llm_provider=entry.get("provider") or "")
+    return Settings(**data)
